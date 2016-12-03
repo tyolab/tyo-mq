@@ -23,7 +23,8 @@ module.exports = function () {
 
         // maintain a request table for whom is requesting what
         // 1 success, 
-            
+        
+        
         // creating a new websocket then wait for connection
         io.sockets.on('connection', function(socket) {
             
@@ -33,14 +34,19 @@ module.exports = function () {
             socket.on('SUBSCRIBE', function (event) {
                 if ((typeof event) === 'string') {
                     subscriptions[event] = subscriptions[event] || {};
-                    subscriptions[event][socket.id] = true;
+                    if (!subscriptions[event][socket.id]) {
+                        subscriptions[event][socket.id] = true;
+                    }
 
-                    socket.on(event, function (data) {
-                        for (var key in subscriptions[event]) {
-                            var socketId = subscriptions[event][key];
-                            self.send(socketId, event, data);
-                        }
-                    });
+                    // can't do it in this scope, hasn't figured out why
+                    // socket.on(event, function (data) {
+                    //     console.log('Received subscribed message: ' + event + ', data: ' + data);
+
+                    //     for (var key in subscriptions[event]) {
+                    //         if (subscriptions[event][key])
+                    //             self.send(key, event, data);
+                    //     }
+                    // });
                 }
                 else {
                     var msg = "Message name should be a string";
@@ -55,36 +61,89 @@ module.exports = function () {
                     delete subscriptions[data][socket.id];
                 }
             });
+
+            socket.on('DEBUG', function (data) {
+                console.log('Received DEBUG message: ' + data);
+            });
+
+            socket.on('PRODUCE', function (obj) {
+                var event = obj.event;
+                var message = obj.message;
+
+                for (var id in subscriptions[event]) {
+                    if (subscriptions[event][id])
+                        self.send(id, 'CONSUME', {event:event, message:message});
+                }
+            });
+
+            // var setEventListeners = function () {
+            //     for (var e in subscriptions) {
+            //         for (var id in subscriptions[e]) {
+            //             if (!subscriptions[e][id]) {
+            //                 socket.on(e, function (data) {
+            //                     self.send(id, e, data);
+            //                 });
+            //                 subscriptions[e][id] = true;
+            //             }
+            //         }
+            //     }
+            // }
+
+            // var loop = function () {
+            //     setTimeout(function () {
+            //         setEventListeners.call(socket);
+
+            //         loop();
+            //     }, 1000);
+            // }
+
+            // loop();
         });
 
     }
 
     var subscriptions = {};
 
-    this.subscribe = function (event, callback, onErrorCallback) {
-        var mySocket = this.createSocket();
+    this.createSocket = function (callback) {
+        var mySocket = new Socket();
+        mySocket.connect(callback);
+        return mySocket;
+    };
 
-        mySocket.sendMessage('SUBSCRIBE', event);
-        mySocket.on(event, callback);
+    this.createConsumer = function (onConnectcallback, onErrorCallback) {
+        var consumer = this.createSocket(onConnectcallback);
 
         onErrorCallback = onErrorCallback || function (message) {
             console.error("Error message received: " + message);
         };
-        mySocket.on('ERROR', onErrorCallback);
+        consumer.on('ERROR', onErrorCallback);
 
-        return mySocket;
-    };
+        consumer.subscribe = function (event, onConsumeCallback) {
+            consumer.sendMessage('SUBSCRIBE', event);
 
-    this.createSocket = function () {
-        var mySocket = new Socket();
-        mySocket.connect();
-        return mySocket;
-    };
+            consumer.consume = function (obj) {
+                var intendedEvent = obj.event;
+                var message = obj.message;
 
-    this.createProducer = function (event) {
-        var producer = this.createSocket();
-        producer.produce = function (data) {
-            producer.sendMessage(event, data);
+                if (intendedEvent === event) {
+                    onConsumeCallback(message);
+                }
+            };
+
+            consumer.on('CONSUME', consumer.consume);
+        };
+
+        return consumer;
+    }
+
+    this.createProducer = function (eventDefault, callback) {
+        var producer = this.createSocket(callback);
+        producer.produce = function (event, data) {
+            if (!data) {
+                data = event;
+                event = eventDefault;
+            }
+            producer.sendMessage('PRODUCE', {event:event, message:data});
         };
 
         return producer;
@@ -93,6 +152,10 @@ module.exports = function () {
     this.broadcast = function (event, message) {
         io.volatile.emit(event, message);
     };
+
+    /**
+     * Send event / message to a particular endpoint
+     */
 
     this.send = function (socketId, event, message) {
         io.to(socketId).emit(event, message);
