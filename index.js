@@ -90,7 +90,9 @@ module.exports = function () {
         var mySocket = new Socket();
 
         if (callback) {
-            mySocket.connect(callback);
+            mySocket.connect(() => {
+                callback(mySocket)
+            });
         }
         return mySocket;
     };
@@ -99,48 +101,63 @@ module.exports = function () {
      * Create a consumer
      */
 
-    this.createConsumer = function (onConnectcallback, onErrorCallback) {
-        var consumer = this.createSocket(onConnectcallback);
+    this.createConsumer = function (callback, onErrorCallback) {
+        this.createSocket((consumer) => {
 
-        onErrorCallback = onErrorCallback || function (message) {
-            console.error("Error message received: " + message);
-        };
-        consumer.on('ERROR', onErrorCallback);
+            onErrorCallback = onErrorCallback || function (message) {
+                console.error("Error message received: " + message);
+            };
+            consumer.on('ERROR', onErrorCallback);
 
-        consumer.subscribe = function (event, onConsumeCallback) {
-            consumer.sendMessage('SUBSCRIBE', event);
+            consumer.subscribe = function (event, onConsumeCallback) {
+                consumer.sendMessage('SUBSCRIBE', event);
+``
+                consumer.consume = function (obj) {
+                    var intendedEvent = obj.event;
+                    var message = obj.message;
 
-            consumer.consume = function (obj) {
-                var intendedEvent = obj.event;
-                var message = obj.message;
+                    if (intendedEvent === event) {
+                        onConsumeCallback(message);
+                    }
+                };
 
-                if (intendedEvent === event) {
-                    onConsumeCallback(message);
-                }
+                consumer.on('CONSUME', consumer.consume);
             };
 
-            consumer.on('CONSUME', consumer.consume);
-        };
-
-        return consumer;
+            callback(consumer);
+        });
     }
 
     /**
      * Create a producer
      */
 
-    this.createProducer = function (eventDefault) {
-        var producer = this.createSocket();
+    this.createProducer = function (eventDefault, callback) {
+        if (!callback) {
+            callback = eventDefault;
+            eventDefault = null;
+        }
+        this.createSocket((producer) => {
         
-        producer.produce = function (event, data) {
-            if (!data) {
-                data = event;
-                event = eventDefault;
-            }
-            producer.sendMessage('PRODUCE', {event:event, message:data});
-        };
+            producer.produce = function (event, data) {
+                var self = this;
 
-        return producer;
+                if (!data) {
+                    data = event;
+                    event = eventDefault;
+
+                    if (!event)
+                        throw new Error('Default event name is not set.');
+                }
+
+                setTimeout(function() {
+                    self.sendMessage.call(self, 'PRODUCE', {event:event, message:data});
+                }, 10);
+            };
+
+            callback(producer);
+        });
+        //return producer;
     }
 
     this.broadcast = function (event, message) {
