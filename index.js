@@ -76,39 +76,28 @@ module.exports = function () {
                 }
             });
 
-            // var setEventListeners = function () {
-            //     for (var e in subscriptions) {
-            //         for (var id in subscriptions[e]) {
-            //             if (!subscriptions[e][id]) {
-            //                 socket.on(e, function (data) {
-            //                     self.send(id, e, data);
-            //                 });
-            //                 subscriptions[e][id] = true;
-            //             }
-            //         }
-            //     }
-            // }
-
-            // var loop = function () {
-            //     setTimeout(function () {
-            //         setEventListeners.call(socket);
-
-            //         loop();
-            //     }, 1000);
-            // }
-
-            // loop();
         });
 
     }
 
     var subscriptions = {};
 
+    /**
+     * Create the comminucation channel (e.g. socket)
+     */
+
     this.createSocket = function (callback) {
         var mySocket = new Socket();
-        mySocket.connect(callback);
+
+        if (callback) {
+            mySocket.connect(callback);
+        }
         return mySocket;
     };
+
+    /**
+     * Create a consumer
+     */
 
     this.createConsumer = function (onConnectcallback, onErrorCallback) {
         var consumer = this.createSocket(onConnectcallback);
@@ -136,8 +125,13 @@ module.exports = function () {
         return consumer;
     }
 
-    this.createProducer = function (eventDefault, callback) {
-        var producer = this.createSocket(callback);
+    /**
+     * Create a producer
+     */
+
+    this.createProducer = function (eventDefault) {
+        var producer = this.createSocket();
+        
         producer.produce = function (event, data) {
             if (!data) {
                 data = event;
