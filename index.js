@@ -1,5 +1,13 @@
 var Socket = require('./lib/socket');
 
+function toConsumeEvent (event) {
+    /**
+     * COSUMER EVENT = "CONSUME" + CAP(event)
+     */
+    var capEvent = event.toUpperCase();
+    return 'CONSUME-' + capEvent;
+}
+
 module.exports = function () {
 
     var app = require('http').createServer((req, res) => {
@@ -71,8 +79,9 @@ module.exports = function () {
                 var message = obj.message;
 
                 for (var id in subscriptions[event]) {
-                    if (subscriptions[event][id])
-                        self.send(id, 'CONSUME', {event:event, message:message});
+                    if (subscriptions[event][id]) {
+                        self.send(id, toConsumeEvent(event), {event:event, message:message});
+                    }
                 }
             });
 
@@ -98,21 +107,25 @@ module.exports = function () {
     };
 
     /**
-     * Create a consumer
+     * private function
      */
 
-    this.createConsumer = function (callback, onErrorCallback) {
-        this.createSocket((consumer) => {
+    this.createConsumerPrivate = function (context, callback, onErrorCallback) {
 
+        this.createSocket((consumer) => {
             onErrorCallback = onErrorCallback || function (message) {
                 console.error("Error message received: " + message);
             };
+
             consumer.on('ERROR', onErrorCallback);
 
             consumer.subscribe = function (event, onConsumeCallback) {
                 consumer.sendMessage('SUBSCRIBE', event);
-``
-                consumer.consume = function (obj) {
+
+                if (!consumer.consumes)
+                    consumer.consumes = {};
+
+                consumer.consumes[event] = function (obj) {
                     var intendedEvent = obj.event;
                     var message = obj.message;
 
@@ -121,7 +134,12 @@ module.exports = function () {
                     }
                 };
 
-                consumer.on('CONSUME', consumer.consume);
+                consumer.on(toConsumeEvent(event), (obj) => {
+                    if (context)
+                        consumer.consumes[event].call(context, obj);
+                    else
+                    consumer.consumes[event](obj);
+                });
             };
 
             callback(consumer);
@@ -129,16 +147,44 @@ module.exports = function () {
     }
 
     /**
-     * Create a producer
+     * Create a consumer
      */
 
-    this.createProducer = function (eventDefault, callback) {
+    this.createConsumer = function (context, callback, onErrorCallback) {
+        var self = this;
+        if (context && typeof context === 'function') {
+            callback = context;
+            context = null;
+        }
+
         if (!callback) {
+            return new Promise((resolve, reject) => {
+                self.createConsumerPrivate.call(
+                    self,
+                    context, 
+                    (consumer) => {
+                        resolve(consumer);
+                    }, 
+                    onErrorCallback);
+            });
+        }
+        else
+            createConsumerPrivate(context, callback, onErrorCallback);
+    }
+
+    /**
+     * private function
+     */
+     
+     this.createProducerPrivate = function (eventDefault, callback) {
+        if (!callback) {
+            if (!(typeof eventDefault === 'function'))
+                throw new Error('A valid callback function must be provided for creating a message producer');
+
             callback = eventDefault;
             eventDefault = null;
         }
-        this.createSocket((producer) => {
-        
+        this.createSocket((producer) => { 
             producer.produce = function (event, data) {
                 var self = this;
 
@@ -157,7 +203,26 @@ module.exports = function () {
 
             callback(producer);
         });
-        //return producer;
+     }
+
+    /**
+     * Create a producer
+     */
+
+    this.createProducer = function (eventDefault, callback) {
+        var self = this;
+        if (!callback) {
+            return new Promise((resolve, reject) => {
+                self.createProducerPrivate.call(
+                    self,
+                    eventDefault, 
+                    (producer) => {
+                        resolve(producer);
+                    });
+            });
+        }
+        else
+            createProducerPrivate(eventDefault, callback);
     }
 
     this.broadcast = function (event, message) {
