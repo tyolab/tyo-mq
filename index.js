@@ -9,6 +9,10 @@ function toConsumeEvent (event) {
 }
 
 module.exports = function (p) {
+    /**
+     * for log
+     */
+    this.logger = console;
 
     var app = require('http').createServer((req, res) => {
         res.writeHead(403);
@@ -26,12 +30,14 @@ module.exports = function (p) {
      */
 
     this.start = function (p) {
+        var self = this;
+
         port = p || port || DEFAULT_PORT;
 
         // creating the message server
         app.listen(port);
 
-        console.log('message server listening on localhost:' + port);
+        self.logger.log('message server listening on localhost:' + port);
 
         // maintain a request table for whom is requesting what
         // 1 success, 
@@ -52,7 +58,7 @@ module.exports = function (p) {
 
                     // can't do it in this scope, hasn't figured out why
                     // socket.on(event, function (data) {
-                    //     console.log('Received subscribed message: ' + event + ', data: ' + data);
+                    //     logger.log('Received subscribed message: ' + event + ', data: ' + data);
 
                     //     for (var key in subscriptions[event]) {
                     //         if (subscriptions[event][key])
@@ -62,8 +68,8 @@ module.exports = function (p) {
                 }
                 else {
                     var msg = "Message name should be a string";
-                    console.error("Incorrect subcription message name: " + event);
-                    console.error(msg);
+                    self.logger.error("Incorrect subcription message name: " + event);
+                    self.logger.error(msg);
                     self.send(socket.id, 'ERROR', msg);
                 }
             });
@@ -75,7 +81,7 @@ module.exports = function (p) {
             });
 
             socket.on('DEBUG', function (data) {
-                console.log('Received DEBUG message: ' + data);
+                self.logger.log('Received DEBUG message: ' + data);
             });
 
             socket.on('PRODUCE', function (obj) {
@@ -99,13 +105,18 @@ module.exports = function (p) {
      * Create the comminucation channel (e.g. socket)
      */
 
-    this.createSocket = function (callback) {
+    this.createSocket = function (callback, p, host, protocol, args) {
         var mySocket = new Socket();
 
         if (callback) {
             mySocket.connect(() => {
                 callback(mySocket)
-            });
+            },
+            p || port,
+            host,
+            protocol,
+            args
+            );
         }
         return mySocket;
     };
@@ -114,11 +125,11 @@ module.exports = function (p) {
      * private function
      */
 
-    this.createConsumerPrivate = function (context, callback, onErrorCallback) {
+    this.createConsumerPrivate = function (context, callback, port, host, protocol, args, onErrorCallback) {
 
         this.createSocket((consumer) => {
             onErrorCallback = onErrorCallback || function (message) {
-                console.error("Error message received: " + message);
+                self.logger.error("Error message received: " + message);
             };
 
             consumer.on('ERROR', onErrorCallback);
@@ -154,9 +165,14 @@ module.exports = function (p) {
      * Create a consumer
      */
 
-    this.createConsumer = function (context, callback, onErrorCallback) {
+    this.createConsumer = function (context, callback, port, host, protocol, args, onErrorCallback) {
         var self = this;
         if (context && typeof context === 'function') {
+            onErrorCallback = args;
+            args = protocol;
+            protocol = host;
+            host = port;
+            port = callbak;
             callback = context;
             context = null;
         }
@@ -169,11 +185,12 @@ module.exports = function (p) {
                     (consumer) => {
                         resolve(consumer);
                     }, 
+                    port, host, protocol, args,
                     onErrorCallback);
             });
         }
         else
-            self.createConsumerPrivate(context, callback, onErrorCallback);
+            self.createConsumerPrivate(context, callback, port, host, protocol, args, onErrorCallback);
     }
 
     /**
@@ -186,11 +203,15 @@ module.exports = function (p) {
      * private function
      */
      
-     this.createProducerPrivate = function (eventDefault, callback) {
+     this.createProducerPrivate = function (eventDefault, callback, port, host, protocol, args) {
         if (!callback) {
             if (!(typeof eventDefault === 'function'))
                 throw new Error('A valid callback function must be provided for creating a message producer');
 
+            args = protocol;
+            protocol = host;
+            host = port;
+            port = callbak;
             callback = eventDefault;
             eventDefault = null;
         }
@@ -212,14 +233,16 @@ module.exports = function (p) {
             };
 
             callback(producer);
-        });
+        }
+        , port, host, protocol, args
+        );
      }
 
     /**
      * Create a producer
      */
 
-    this.createProducer = function (eventDefault, callback) {
+    this.createProducer = function (eventDefault, callback, port, host, protocol, args) {
         var self = this;
         if (!callback) {
             return new Promise((resolve, reject) => {

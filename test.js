@@ -16,19 +16,30 @@ var main = function () {
     })
     .then((c) => {
         consumer = c;
+        var test = 0;
 
         consumer.subscribe('test', (data) => {
+            test += 1;
             if (data === 'test-a') 
                 console.log('test1 succeeded!');
             else   
                 console.log('test1 failed');
+
+            if (test === 2) {
+                process.exit(0);
+            }
         });
 
         consumer.subscribe('test2', (data) => {
+            test += 1;
             if (data === 'test-b') 
                 console.log('test2 succeeded!');
             else   
                 console.log('test2 failed');
+
+            if (test === 2) {
+                process.exit(0);
+            }
         });
 
         producer.produce('test', 'test-a');
