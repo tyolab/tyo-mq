@@ -107,6 +107,8 @@ module.exports = function (p) {
 
     this.createSocket = function (callback, p, host, protocol, args) {
         var mySocket = new Socket();
+        if (this.logger) 
+            mySocket.logger = this.logger;
 
         if (callback) {
             mySocket.connect(() => {
