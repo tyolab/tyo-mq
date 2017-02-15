@@ -8,7 +8,7 @@ function toConsumeEvent (event) {
     return 'CONSUME-' + capEvent;
 }
 
-module.exports = function () {
+module.exports = function (p) {
 
     var app = require('http').createServer((req, res) => {
         res.writeHead(403);
@@ -19,10 +19,14 @@ module.exports = function () {
 
     // info
     var DEFAULT_PORT = 17352;
-    var port;
+    var port = p;
+
+    /**
+     * Start the message queue server with specific port
+     */
 
     this.start = function (p) {
-        port = p || DEFAULT_PORT;
+        port = p || port || DEFAULT_PORT;
 
         // creating the message server
         app.listen(port);
@@ -169,8 +173,14 @@ module.exports = function () {
             });
         }
         else
-            createConsumerPrivate(context, callback, onErrorCallback);
+            self.createConsumerPrivate(context, callback, onErrorCallback);
     }
+
+    /**
+     * Alias of createConsumer
+     */
+
+    this.createSubscriber = this.createConsumer;
 
     /**
      * private function
@@ -222,7 +232,7 @@ module.exports = function () {
             });
         }
         else
-            createProducerPrivate(eventDefault, callback);
+            self.createProducerPrivate(eventDefault, callback);
     }
 
     this.broadcast = function (event, message) {
