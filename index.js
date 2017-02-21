@@ -1,20 +1,7 @@
-var Socket = require('./lib/socket');
-
-function toConsumeEvent (event) {
-    /**
-     * COSUMER EVENT = "CONSUME" + CAP(event)
-     */
-    var capEvent = event.toUpperCase();
-    return 'CONSUME-' + capEvent;
-}
-
-function toOnDisconnectFromProducerEvent (producerId) {
-
-}
-
-function toOnUnsubscribeEvent (event) {
-
-}
+var Socket      = require('./lib/socket'),
+    Subscriber  = require('./lib/subscriber'),
+    Producer    = require('./lib/producer'),
+    events      = require('./lib/events');
 
 module.exports = function (p) {
     /**
@@ -45,7 +32,8 @@ module.exports = function (p) {
         // creating the message server
         app.listen(port);
 
-        self.logger.log('message server listening on localhost:' + port);
+        if (self.logger)
+            self.logger.log('message server listening on localhost:' + port);
 
         // maintain a request table for whom is requesting what
         // 1 success, 
@@ -76,8 +64,10 @@ module.exports = function (p) {
                 }
                 else {
                     var msg = "Message name should be a string";
-                    self.logger.error("Incorrect subcription message name: " + event);
-                    self.logger.error(msg);
+                    if (self.logger) {
+                        self.logger.error("Incorrect subcription message name: " + event);
+                        self.logger.error(msg);
+                    }
                     self.send(socket.id, 'ERROR', msg);
                 }
             });
@@ -95,7 +85,8 @@ module.exports = function (p) {
              * 
              */
             socket.on('DEBUG', function (data) {
-                self.logger.log('Received DEBUG message: ' + data);
+                if (self.logger)
+                    self.logger.log('Received DEBUG message: ' + data);
             });
 
             /**
@@ -107,7 +98,7 @@ module.exports = function (p) {
 
                 for (var id in subscriptions[event]) {
                     if (subscriptions[event][id]) {
-                        self.send(id, toConsumeEvent(event), {event:event, message:message});
+                        self.send(id, events.toConsumeEvent(event), {event:event, message:message});
                     }
                 }
             });
@@ -148,39 +139,28 @@ module.exports = function (p) {
      */
 
     this.createConsumerPrivate = function (context, callback, port, host, protocol, args, onErrorCallback) {
+        var consumer = new Subscriber();
+        if (context && context.logger)
+            consumer.logger = context.logger;
 
-        this.createSocket((consumer) => {
-            onErrorCallback = onErrorCallback || function (message) {
-                self.logger.error("Error message received: " + message);
-            };
-
-            consumer.on('ERROR', onErrorCallback);
-
-            consumer.subscribe = function (event, onConsumeCallback) {
-                consumer.sendMessage('SUBSCRIBE', event);
-
-                if (!consumer.consumes)
-                    consumer.consumes = {};
-
-                consumer.consumes[event] = function (obj) {
-                    var intendedEvent = obj.event;
-                    var message = obj.message;
-
-                    if (intendedEvent === event) {
-                        onConsumeCallback(message);
-                    }
+        if (callback) {
+            consumer.connect(() => {
+                onErrorCallback = onErrorCallback || function (message) {
+                    if (self.logger)
+                        self.logger.error("Error message received: " + message);
                 };
 
-                consumer.on(toConsumeEvent(event), (obj) => {
-                    if (context)
-                        consumer.consumes[event].call(context, obj);
-                    else
-                    consumer.consumes[event](obj);
-                });
-            };
+                consumer.on('ERROR', onErrorCallback);
 
-            callback(consumer);
-        });
+                callback(consumer);
+            },
+            p || port,
+            host,
+            protocol,
+            args
+            );
+        }
+        return consumer;
     }
 
     /**
@@ -196,11 +176,12 @@ module.exports = function (p) {
             host = port;
             port = callbak;
             callback = context;
-            context = null;
+            context = this;
         }
 
         if (!callback) {
             return new Promise((resolve, reject) => {
+                try {
                 self.createConsumerPrivate.call(
                     self,
                     context, 
@@ -209,6 +190,10 @@ module.exports = function (p) {
                     }, 
                     port, host, protocol, args,
                     onErrorCallback);
+                }
+                catch (err) {
+                    reject(err);
+                }
             });
         }
         else
@@ -225,11 +210,8 @@ module.exports = function (p) {
      * private function
      */
      
-     this.createProducerPrivate = function (eventDefault, callback, port, host, protocol, args) {
-        if (!callback) {
-            if (!(typeof eventDefault === 'function'))
-                throw new Error('A valid callback function must be provided for creating a message producer');
-
+     this.createProducerPrivate = function (context, eventDefault, callback, port, host, protocol, args) {
+        if (!callback && typeof eventDefault === 'function') {
             args = protocol;
             protocol = host;
             host = port;
@@ -237,38 +219,22 @@ module.exports = function (p) {
             callback = eventDefault;
             eventDefault = null;
         }
-        this.createSocket((producer) => { 
 
+        var producer = new Producer();
+        if (context && context.logger)
+            producer.logger = context.logger;
 
-            /**
-             * Event produce function
-             */
+        if (callback)
+            return producer.connect(() => {
+                callback(producer);
+            },
+            p || port,
+            host,
+            protocol,
+            args
+            );
 
-            producer.produce = function (event, data) {
-                var self = this;
-
-                if (!data) {
-                    data = event;
-                    event = eventDefault;
-
-                    if (!event)
-                        throw new Error('Default event name is not set.');
-                }
-
-                //setTimeout(function() {
-                    self.sendMessage.call(self, 'PRODUCE', {event:event, message:data});
-                //}, 10);
-            };
-
-            /**
-             * create an on subcriber lost listener
-             */
-             producer.su
-
-            callback(producer);
-        }
-        , port, host, protocol, args
-        );
+        return producer;
      }
 
     /**
@@ -279,16 +245,22 @@ module.exports = function (p) {
         var self = this;
         if (!callback) {
             return new Promise((resolve, reject) => {
-                self.createProducerPrivate.call(
-                    self,
-                    eventDefault, 
-                    (producer) => {
-                        resolve(producer);
-                    });
+                try {
+                    self.createProducerPrivate.call(
+                        self,
+                        self,
+                        eventDefault, 
+                        (producer) => {
+                            resolve(producer);
+                        });
+                }
+                catch (err) {
+                    reject(err);
+                }
             });
         }
         else
-            self.createProducerPrivate(eventDefault, callback);
+            self.createProducerPrivate(self, eventDefault, callback);
     }
 
     this.broadcast = function (event, message) {

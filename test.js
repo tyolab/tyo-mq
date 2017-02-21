@@ -92,8 +92,6 @@ var main = function () {
             if (test === 2) exitCheck();
         });
 
-
-
         producer.produce('test', 'test-a');
         producer.produce('test2', 'test-b');
     });
