@@ -1,8 +1,8 @@
 # tyo-mq
 
-A distributed messaging server.
+TYO-MQ is a distributed messaging service with socket.io. 
 
-At the moment, the message queuing is not implemented yet.
+At the moment the message queuing is not implemented yet, which means all messages are sent instantly without confirmation of message delivery or recieving. So message subcriber(s) will need to be online in order to recieve the message.
 
 ## Installation
     npm install tyo-mq
@@ -58,3 +58,11 @@ mq.createConsumer()
     });
 });
 ```
+
+## TODO list
+* message queuing if intended subscriber is down, resend message when it is up
+* message delivery for one or some intended subscribers only
+
+## Maintainer
+
+[Eric Tang](https://twitter.com/_e_tang) @ [TYO LAB](http://tyo.com.au)
