@@ -1,7 +1,7 @@
-var Socket      = require('./lib/socket'),
-    Subscriber  = require('./lib/subscriber'),
-    Producer    = require('./lib/producer'),
-    events      = require('./lib/events');
+var Socket          = require('./lib/socket'),
+    Subscriber      = require('./lib/subscriber'),
+    Producer        = require('./lib/producer'),
+    eventManager    = require('./lib/events');
 
 module.exports = function (p) {
     /**
@@ -43,14 +43,17 @@ module.exports = function (p) {
         io.sockets.on('connection', function(socket) {
             
             // system message all CAPS
+            function subscribeMessage (event, id) {
+                subscriptions[event] = subscriptions[event] || {};
+                if (!subscriptions[event][socket.id]) {
+                    subscriptions[event][socket.id] = true;
+                }
+            }
 
             // subscribe message
             socket.on('SUBSCRIBE', function (event) {
                 if ((typeof event) === 'string') {
-                    subscriptions[event] = subscriptions[event] || {};
-                    if (!subscriptions[event][socket.id]) {
-                        subscriptions[event][socket.id] = true;
-                    }
+                    subscribeMessage (event);
 
                     // can't do it in this scope, hasn't figured out why
                     // socket.on(event, function (data) {
@@ -84,6 +87,7 @@ module.exports = function (p) {
             /**
              * 
              */
+
             socket.on('DEBUG', function (data) {
                 if (self.logger)
                     self.logger.log('Received DEBUG message: ' + data);
@@ -92,19 +96,33 @@ module.exports = function (p) {
             /**
              * 
              */
+
+            function generateMessage (event, message) {
+                for (var id in subscriptions[event]) {
+                    if (subscriptions[event][id]) {
+                        self.send(id, eventManager.toConsumeEvent(event), {event:event, message:message});
+                    }
+                }
+            };
+
+            /**
+             * 
+             */
+
             socket.on('PRODUCE', function (obj) {
                 var event = obj.event;
                 var message = obj.message;
 
-                for (var id in subscriptions[event]) {
-                    if (subscriptions[event][id]) {
-                        self.send(id, events.toConsumeEvent(event), {event:event, message:message});
-                    }
-                }
+                generateMessage(event, message);
             });
 
-            socket.on('disconnect', function () {
+            /**
+             * 
+             */
 
+            socket.on('disconnect', function () {
+                var event = eventManager.toOnDisconnectFromProducerEvent(socket.id);
+                var id = self.producerid || socket
             });
         });
 

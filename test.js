@@ -94,6 +94,7 @@ var main = function () {
 
         producer.produce('test', 'test-a');
         producer.produce('test2', 'test-b');
+
     });
 }
 
