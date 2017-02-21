@@ -8,6 +8,14 @@ function toConsumeEvent (event) {
     return 'CONSUME-' + capEvent;
 }
 
+function toOnDisconnectFromProducerEvent (producerId) {
+
+}
+
+function toOnUnsubscribeEvent (event) {
+
+}
+
 module.exports = function (p) {
     /**
      * for log
@@ -74,16 +82,25 @@ module.exports = function (p) {
                 }
             });
 
+            /**
+             * 
+             */
             socket.on('UNSUBSCRIBE', function (data) {
                 if (subscriptions[data] && subscriptions[data][socket.id]) {
                     delete subscriptions[data][socket.id];
                 }
             });
 
+            /**
+             * 
+             */
             socket.on('DEBUG', function (data) {
                 self.logger.log('Received DEBUG message: ' + data);
             });
 
+            /**
+             * 
+             */
             socket.on('PRODUCE', function (obj) {
                 var event = obj.event;
                 var message = obj.message;
@@ -95,6 +112,9 @@ module.exports = function (p) {
                 }
             });
 
+            socket.on('disconnect', function () {
+
+            });
         });
 
     }
@@ -218,6 +238,12 @@ module.exports = function (p) {
             eventDefault = null;
         }
         this.createSocket((producer) => { 
+
+
+            /**
+             * Event produce function
+             */
+
             producer.produce = function (event, data) {
                 var self = this;
 
@@ -229,10 +255,15 @@ module.exports = function (p) {
                         throw new Error('Default event name is not set.');
                 }
 
-                setTimeout(function() {
+                //setTimeout(function() {
                     self.sendMessage.call(self, 'PRODUCE', {event:event, message:data});
-                }, 10);
+                //}, 10);
             };
+
+            /**
+             * create an on subcriber lost listener
+             */
+             producer.su
 
             callback(producer);
         }
