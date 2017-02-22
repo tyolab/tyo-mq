@@ -55,8 +55,14 @@ if (process.argv.length > 2) {
 var main = function () {
     var producer;
     var consumer;
+
+    function disconnectConsumer () {
+        consumer.disconnect();
+    }
+
     mq.createProducer('test')
     .then((p) => {
+        console.log('Producer: ' + p.getId());
         producer = p;
         producer.on('connect', () => {
             console.log('producer\'s own connect listenr');
@@ -65,6 +71,7 @@ var main = function () {
         return mq.createConsumer();
     })
     .then((c) => {
+        console.log('Subscriber: ' + c.getId());
         consumer = c;
         var test = 0;
 
@@ -79,7 +86,7 @@ var main = function () {
             else   
                 console.log('test1 failed');
 
-            if (test === 2) exitCheck();
+            if (test === 2) disconnectConsumer();
         });
 
         consumer.subscribe('test2', (data) => {
@@ -89,7 +96,15 @@ var main = function () {
             else   
                 console.log('test2 failed');
 
-            if (test === 2) exitCheck();
+            if (test === 2) disconnectConsumer();
+        });
+
+        producer.onSubscriberLost(consumer.getId(), () => {
+            test += 1;
+
+            console.log('Informed that connection with a subscriber was lost');
+
+            if (test === 3) exitCheck();
         });
 
         producer.produce('test', 'test-a');

@@ -43,16 +43,23 @@ module.exports = function (p) {
         io.sockets.on('connection', function(socket) {
             
             // system message all CAPS
-            function subscribeMessage (event, id) {
-                subscriptions[event] = subscriptions[event] || {};
-                if (!subscriptions[event][socket.id]) {
-                    subscriptions[event][socket.id] = true;
+            function subscribeMessage (event) {
+                var eventStr, id;
+
+                eventStr = eventManager.toEventString(event);
+
+                // id is the message subscriber's id
+                id = event.id || socket.id;
+                
+                subscriptions[eventStr] = subscriptions[eventStr] || {};
+                if (!subscriptions[eventStr][id]) {
+                    subscriptions[eventStr][id] = true;
                 }
             }
 
             // subscribe message
             socket.on('SUBSCRIBE', function (event) {
-                if ((typeof event) === 'string') {
+                if ((typeof event === 'object' && event.event) || (typeof event) === 'string') {
                     subscribeMessage (event);
 
                     // can't do it in this scope, hasn't figured out why
@@ -122,7 +129,8 @@ module.exports = function (p) {
 
             socket.on('disconnect', function () {
                 var event = eventManager.toOnDisconnectFromProducerEvent(socket.id);
-                var id = self.producerid || socket
+                var message = {event: 'DISCONNECT', who: socket.id};
+                generateMessage(event, message);
             });
         });
 
