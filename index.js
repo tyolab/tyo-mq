@@ -50,7 +50,7 @@ module.exports = function (p) {
 
                 // id is the message subscriber's id
                 id = event.id || socket.id;
-                
+
                 subscriptions[eventStr] = subscriptions[eventStr] || {};
                 if (!subscriptions[eventStr][id]) {
                     subscriptions[eventStr][id] = true;
@@ -241,7 +241,7 @@ module.exports = function (p) {
             args = protocol;
             protocol = host;
             host = port;
-            port = callbak;
+            port = callback;
             callback = eventDefault;
             eventDefault = null;
         }
