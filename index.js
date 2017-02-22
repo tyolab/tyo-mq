@@ -200,7 +200,7 @@ module.exports = function (p) {
             args = protocol;
             protocol = host;
             host = port;
-            port = callbak;
+            port = callback;
             callback = context;
             context = this;
         }
@@ -246,7 +246,7 @@ module.exports = function (p) {
             eventDefault = null;
         }
 
-        var producer = new Producer();
+        var producer = new Producer(eventDefault);
         if (context && context.logger)
             producer.logger = context.logger;
 
