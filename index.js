@@ -101,6 +101,15 @@ module.exports = function (p) {
             });
 
             /**
+             * DISCONNECT from server
+             */
+
+             socket.on('QUIT', function (id) {
+                if (id === socket.id)
+                    socket.disconnect();
+             });
+
+            /**
              * 
              */
 

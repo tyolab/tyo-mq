@@ -1,10 +1,10 @@
 {
   "name": "tyo-mq",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "description": "Distributed Message Queue Service with socket.io",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test.js"
   },
   "author": "",
   "license": "MIT",
@@ -12,5 +12,13 @@
     "http": "0.0.0",
     "socket.io": "^1.7.1",
     "socket.io-client": "^1.7.1"
-  }
+  },
+   "files": [
+    "LICENSE",
+    "lib/",
+    "README.md",
+    "index.js",
+    "server,js",
+    "test.js"
+  ]
 }
