@@ -1,6 +1,6 @@
 var childProcess = require('child_process');
 
-var MessageQueue = require('.');
+var MessageQueue = require('./lib/message-queue');
 var mq = new MessageQueue();
 
 var forkServer = false;
