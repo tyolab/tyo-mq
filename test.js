@@ -107,8 +107,11 @@ var main = function () {
             if (test === 3) exitCheck();
         });
 
-        producer.produce('test', 'test-a');
-        producer.produce('test2', 'test-b');
+        // wait for 3 seconds before we produce message
+        setTimeout(function () {
+            producer.produce('test', 'test-a');
+            producer.produce('test2', 'test-b');
+        }, 3000);
 
     });
 }
