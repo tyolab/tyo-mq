@@ -25,5 +25,6 @@ mq.createConsumer(function (consumer) {
 
             //if (test === 2) disconnectConsumer();
         });
-    });
+    }
+);
 
