@@ -59,6 +59,18 @@ mq.createConsumer()
 });
 ```
 
+## Browserify
+This package supports being browserified.
+In order to browserify, please install two more extra packages:
+```
+nmp install utf-8-validate bufferutil
+```
+
+Afterward,
+```
+browserify web/web.js -o web/client/tyo-mq-client.js
+```
+
 ## TODO list
 * message queuing if intended subscriber is down, resend message when it is up
 * message delivery for one or some intended subscribers only
