@@ -67,7 +67,10 @@ function MessageQueue (io) {
      * for log
      */
     this.logger = console;
-    var self = this;
+    this.port = null;
+    this.host = null;
+
+    var mq = this;
     /**
      * Start the message queue server with specific port
      */
@@ -117,11 +120,11 @@ function MessageQueue (io) {
                 }
                 else {
                     var msg = "Message name should be a string";
-                    if (self.logger) {
-                        self.logger.error("Incorrect subcription message name: " + event);
-                        self.logger.error(msg);
+                    if (mq.logger) {
+                        mq.logger.error("Incorrect subcription message name: " + event);
+                        mq.logger.error(msg);
                     }
-                    self.send(socket.id, 'ERROR', msg);
+                    mq.send(socket.id, 'ERROR', msg);
                 }
             });
 
@@ -134,13 +137,13 @@ function MessageQueue (io) {
                 }
             });
 
-            /**
+            /**ƒ
              * 
              */
 
             socket.on('DEBUG', function (data) {
-                if (self.logger)
-                    self.logger.log('Received DEBUG message: ' + data);
+                if (mq.logger)
+                    mq.logger.log('Received DEBUG message: ' + data);
             });
 
             /**
@@ -159,7 +162,7 @@ function MessageQueue (io) {
             function generateMessage (event, message) {
                 for (var id in subscriptions[event]) {
                     if (subscriptions[event][id]) {
-                        self.send(id, eventManager.toConsumeEvent(event), {event:event, message:message});
+                        mq.send(id, eventManager.toConsumeEvent(event), {event:event, message:message});
                     }
                 }
             };
@@ -208,8 +211,8 @@ function MessageQueue (io) {
             mySocket.connect(() => {
                 callback(mySocket)
             },
-            port,
-            host,
+            port || mq.port,
+            host || mq.host,
             protocol,
             args
             );
@@ -229,8 +232,8 @@ function MessageQueue (io) {
         if (callback) {
             consumer.connect(() => {
                 onErrorCallback = onErrorCallback || function (message) {
-                    if (self.logger)
-                        self.logger.error("Error message received: " + message);
+                    if (mq.logger)
+                        mq.logger.error("Error message received: " + message);
                 };
 
                 consumer.on('ERROR', onErrorCallback);
@@ -265,13 +268,16 @@ function MessageQueue (io) {
         if (!callback) {
             return new Promise((resolve, reject) => {
                 try {
-                self.createConsumerPrivate.call(
+                mq.createConsumerPrivate.call(
                     self,
                     context, 
                     (consumer) => {
                         resolve(consumer);
                     }, 
-                    port, host, protocol, args,
+                    port || mq.port,
+                    host || mq.host,
+                    protocol, 
+                    args,
                     onErrorCallback);
                 }
                 catch (err) {
@@ -280,7 +286,7 @@ function MessageQueue (io) {
             });
         }
         else
-            self.createConsumerPrivate(context, callback, port, host, protocol, args, onErrorCallback);
+            mq.createConsumerPrivate(context, callback, port, host, protocol, args, onErrorCallback);
     }
 
     /**
@@ -329,13 +335,17 @@ function MessageQueue (io) {
         if (!callback) {
             return new Promise((resolve, reject) => {
                 try {
-                    self.createProducerPrivate.call(
+                    mq.createProducerPrivate.call(
                         self,
                         self,
                         eventDefault, 
                         (producer) => {
                             resolve(producer);
-                        });
+                        },
+                        port || mq.port,
+                        host || mq.host,
+                        protocol, 
+                        args);
                 }
                 catch (err) {
                     reject(err);
@@ -343,7 +353,7 @@ function MessageQueue (io) {
             });
         }
         else
-            self.createProducerPrivate(self, eventDefault, callback);
+            mq.createProducerPrivate(self, eventDefault, callback);
     }
 
     this.broadcast = function (event, message) {
@@ -8423,11 +8433,11 @@ yeast.decode = decode;
 module.exports = yeast;
 
 },{}],53:[function(require,module,exports){
-var MessageQueue = require('./lib/message-queue');
+var MessageQueue = require('../lib/message-queue');
 var mq = new MessageQueue();
 
 window.mq = mq;
-},{"./lib/message-queue":2}],54:[function(require,module,exports){
+},{"../lib/message-queue":2}],54:[function(require,module,exports){
 
 },{}],55:[function(require,module,exports){
 // shim for using process in browser
