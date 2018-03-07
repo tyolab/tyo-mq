@@ -13,34 +13,68 @@
     <div class="container">
 
     <div>
-        <h3>Server</h3>
-        <div>
-          <h4>Status</h4>
-          <div id="server-status">Not Connected</div>
-        </div>
+        <h3>TYO MQ Server</h3>
+        <br>
 
-        <input type="text" name="server" value="lab2.tyolab.com"><br>
+        <input type="text" id="server" name="server" onclick="updateMQServer" value="lab2.tyolab.com"><br>
         <br>
         <button type="button">update</button>
         <br>
     </div>
 
-    <div>
-        <h3>Produce Message Type</h3>
-        <input type="text" name="message-type" value="test"><br>
-        <br>
-        <button type="button">update</button><br>
+    <hr>
+
+    <div class="producer">
+        <h3>Producer / Publiser</h3>
+        <div>
+            <h4>Producer Status</h4>
+            <div id="producer-status">Not Connected</div>
+          </div>
+      <div>
+          <h4>Publish Message Type</h4>
+          <input type="text" id="message-type-producer" value="foobar"><br>
+          <br>
+          <button type="button" id="btn-update-producer-message-type">update</button><br>
+      </div>
+      <div>
+          <h4>Message To Send</h4>
+          <textarea id="message-to-send" rows="4" cols="50">Eternal vigilance is the price of liberty. -- Thomas Jefferson </textarea>
+          <br>
+          <button type="button" id="btn-send-message">send</button><br>
+        </div>
+      </div>
     </div>
 
-    <div>
-        <h3>Message To Send</h3>
-        <textarea name="message-to-send" rows="4" cols="50">Eternal vigilance is the price of liberty. -- Thomas Jefferson </textarea>
+    <hr>
+      
+    <div class="consumer">
+        <h3>consumer / Subscriber</h3>
         <br>
-        <button type="button">send</button><br>
+        <div>
+            <h4>Consumer Status</h4>
+            <div id="consumer-status">Not Connected</div>
+          </div>
+      <div>
+          <h4>Subscribe Message Type</h4>
+          <input type="text" id="message-type-consumer" value="foobar"><br>
+          <br>
+          <button type="button" id="btn-update-consumer-message-type">update</button><br>
+      </div>
+
+      <div>
+          <h4>Message from Publisher</h4>
+          <br>
+          <textarea id="message-received"></textarea><br>
+        </div>
       </div>
     </div>
     <script src="tyo-mq-client.js"></script>
     <script src="main.js"></script>
+    <script lang="javascript">
+      window.onload = function() {
+        
+      };
+    </script>
   </body>
 </html>
 
