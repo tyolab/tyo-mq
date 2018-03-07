@@ -6,9 +6,11 @@ var mq = new MessageQueue();
 var forkServer = false;
 
 var noexit = false;
+var port;
+var host;
 
 function usage() {
-    console.log('node test.js [--noexit] [-h]');
+    console.log('node test.js [--noexit] [-h host] [-p port]');
     exit();
 }
 
@@ -31,17 +33,27 @@ if (process.argv.length > 2) {
     for (; param < process.argv.length; ++param) {
         var paramStr = process.argv[param];
     	var o = paramStr.charAt(0);
-    	if (o === '-' && paramStr.length > 2) {
+    	if (o === '-' && paramStr.length > 1) {
     		var c = paramStr.charAt(1);
 	        switch (c) {
-	            case 'h':
+	            case '?':
                     usage();
+                    break;
+                case 'p':
+                    port = process.argv[++param];
+                    break;
+                case 'h':
+                    host = process.argv[++param];
 	                break;
                 case '-': {
                     // long option
                     var cc = paramStr.substr(2);
                     if (cc === 'noexit')
                         noexit = true;
+                    else if (cc == 'port')
+                        port = process.argv[++param];
+                    else if (cc == 'host')
+                        host = process.argv[++param];
                     break;
                 }
 	        }
@@ -51,6 +63,9 @@ if (process.argv.length > 2) {
         }
     }
 }
+
+mq.host = host;
+mq.port = port;
 
 var main = function () {
     var producer;
@@ -75,6 +90,8 @@ var main = function () {
         consumer = c;
         var test = 0;
 
+        // this listener will be only effective after the current connection is lost
+        // and get reconnected again
         consumer.on('connect', () => {
             console.log('consumer\'s own connect listenr');
         });
