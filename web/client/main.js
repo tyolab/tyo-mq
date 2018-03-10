@@ -66,7 +66,7 @@ function updateMQServer() {
         connect(producer);
     }
     else {
-        var publishType = getElementById('message-type-producer');
+        var publishType = document.getElementById('message-type-producer').value;
         mq.createProducer(publishType, (p) => {
             producer = p;
 
@@ -79,7 +79,7 @@ function updateMQServer() {
         updateSubscription();
     }
     else {
-        var subscribeType = getElementById('message-type-consumer').value;
+        var subscribeType = document.getElementById('message-type-consumer').value;
         mq.createConsumer(subscribeType, (c) => {
             consumer = c;
 
@@ -98,34 +98,34 @@ function updateSubscription() {
     }
 }
 
-mq.createConsumer(function (c) {
-        consumer = c;
-        console.log('Subscriber: ' + consumer.getId());
-        var test = 0;
+// mq.createConsumer(function (c) {
+//         consumer = c;
+//         console.log('Subscriber: ' + consumer.getId());
+//         var test = 0;
 
-        consumer.on('connect', () => {
-            console.log('consumer\'s own connect listenr');
-        });
+//         consumer.on('connect', () => {
+//             console.log('consumer\'s own connect listenr');
+//         });
 
-        consumer.subscribe('test', (data) => {
-            test += 1;
-            if (data === 'test-a') 
-                console.log('test1 succeeded!');
-            else   
-                console.log('test1 failed');
+//         consumer.subscribe('test', (data) => {
+//             test += 1;
+//             if (data === 'test-a') 
+//                 console.log('test1 succeeded!');
+//             else   
+//                 console.log('test1 failed');
 
-            //if (test === 2) disconnectConsumer();
-        });
+//             //if (test === 2) disconnectConsumer();
+//         });
 
-        consumer.subscribe('test2', (data) => {
-            test += 1;
-            if (data === 'test-b') 
-                console.log('test2 succeeded!');
-            else   
-                console.log('test2 failed');
+//         consumer.subscribe('test2', (data) => {
+//             test += 1;
+//             if (data === 'test-b') 
+//                 console.log('test2 succeeded!');
+//             else   
+//                 console.log('test2 failed');
 
-            //if (test === 2) disconnectConsumer();
-        });
-    }
-);
+//             //if (test === 2) disconnectConsumer();
+//         });
+//     }
+// );
 

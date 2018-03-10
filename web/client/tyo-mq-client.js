@@ -286,7 +286,13 @@ function MessageQueue (io) {
             });
         }
         else
-            mq.createConsumerPrivate(context, callback, port, host, protocol, args, onErrorCallback);
+            mq.createConsumerPrivate(context, 
+                callback, 
+                port || mq.port,
+                host || mq.host,
+                protocol, 
+                args, 
+                onErrorCallback);
     }
 
     /**
@@ -353,7 +359,14 @@ function MessageQueue (io) {
             });
         }
         else
-            mq.createProducerPrivate(self, eventDefault, callback);
+            mq.createProducerPrivate(self, 
+                eventDefault, 
+                callback,
+                port || mq.port,
+                host || mq.host,
+                protocol,
+                args
+            );
     }
 
     this.broadcast = function (event, message) {
@@ -383,6 +396,44 @@ var Subscriber  = require('./subscriber');
 function Producer (event) {
     this.eventDefault = event;
     Subscriber.call(this);
+
+    /**
+     * Event produce function
+     */
+
+    this.produce = function (event, data) {
+        var self = this;
+
+        if (!data) {
+            data = event;
+            event = this.eventDefault;
+
+            if (!event)
+                throw new Error('Default event name is not set.');
+        }
+
+        //setTimeout(function() {
+            self.sendMessage.call(self, 'PRODUCE', {event:event, message:data});
+        //}, 10);
+    };
+
+    /**
+     * On Lost connections with subscriber(s)
+     */
+
+    this.onSubscriberLost = function (id, callback) {
+        var event = {event: events.toOnDisconnectFromProducerEvent(id), id: this.getId()};
+        this.subscribe(event, callback);
+    };
+
+    /**
+     * On Unsubsribe
+     */
+
+    this.onUnsubscribed = function (id, callback) {
+        var event = {event: events.toOnUnsubscribeEvent(id), id: this.getId()};
+        this.subscribe(event, callback);
+    }
 }
 
 /**
@@ -390,44 +441,6 @@ function Producer (event) {
  */
 
 util.inherits(Producer, Subscriber);
-
-/**
- * Event produce function
- */
-
-Producer.prototype.produce = function (event, data) {
-    var self = this;
-
-    if (!data) {
-        data = event;
-        event = this.eventDefault;
-
-        if (!event)
-            throw new Error('Default event name is not set.');
-    }
-
-    //setTimeout(function() {
-        self.sendMessage.call(self, 'PRODUCE', {event:event, message:data});
-    //}, 10);
-};
-
-/**
- * On Lost connections with subscriber(s)
- */
-
-Producer.prototype.onSubscriberLost = function (id, callback) {
-    var event = {event: events.toOnDisconnectFromProducerEvent(id), id: this.getId()};
-    this.subscribe(event, callback);
-};
-
-/**
- * On Unsubsribe
- */
-
-Producer.prototype.onUnsubscribed = function (id, callback) {
-    var event = {event: events.toOnUnsubscribeEvent(id), id: this.getId()};
-    this.subscribe(event, callback);
-}
 
 module.exports = Producer;
 },{"./events":1,"./subscriber":5,"util":58}],4:[function(require,module,exports){
