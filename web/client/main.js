@@ -6,17 +6,17 @@ var producer;
 var consumer;
 
 function updateProducerStatus(connected) {
-    var elem = getElementById('producer-status');
+    var elem = document.getElementById('producer-status');
     updateConnectionStatus(elem, connected);
 }
 
 function updateConsumerStatus(connected) {
-    var elem = getElementById('consumer-status');
+    var elem = document.getElementById('consumer-status');
     updateConnectionStatus(elem, connected);
 }
 
 function updateConnectionStatusById(connected, id) {
-    var elem = getElementById(id);
+    var elem = document.getElementById(id);
     updateConnectionStatus(elem, connected);
 }
 
@@ -30,13 +30,13 @@ function updateConnectionStatus(elem, connected) {
 }
 
 function updateMessageFromPublisher(message) {
-    var elem = getElementById('message-received');
+    var elem = document.getElementById('message-received');
     elem.innerHTML = message;
 }
 
 function publish() {
-    var message = getElementById('message-to-send').innerHTML;
-    var type = getElementById('message-type-producer').value;
+    var message = document.getElementById('message-to-send').innerHTML;
+    var type = document.getElementById('message-type-producer').value;
     producer.produce(type, message);
 }
 
@@ -84,13 +84,15 @@ function updateMQServer() {
             consumer = c;
 
             onConnect(consumer, 'consumer-status');
+
+            updateSubscription();
         });
     }
 
 }
 
 function updateSubscription() {
-    var subscribeType = getElementById('message-type-consumer').value;
+    var subscribeType = document.getElementById('message-type-consumer').value;
     if (consumer) {
         consumer.subscribe(subscribeType, (message) => {
             updateMessageFromPublisher(message);

@@ -16,7 +16,7 @@
         <h3>TYO MQ Server</h3>
         <br>
 
-        <input type="text" id="server" name="server" onclick="updateMQServer" value="lab2.tyolab.com"><br>
+        <input type="text" id="server" name="server" onclick="updateMQServer()" value="lab2.tyolab.com"><br>
         <br>
         <button type="button">update</button>
         <br>
@@ -34,13 +34,15 @@
           <h4>Publish Message Type</h4>
           <input type="text" id="message-type-producer" value="foobar"><br>
           <br>
-          <button type="button" id="btn-update-producer-message-type">update</button><br>
+          <!--
+          <button type="button" id="btn-update-producer-message-type" onclick="updatePublisherMessageType">update</button><br>
+          -->
       </div>
       <div>
           <h4>Message To Send</h4>
           <textarea id="message-to-send" rows="4" cols="50">Eternal vigilance is the price of liberty. -- Thomas Jefferson </textarea>
           <br>
-          <button type="button" id="btn-send-message">send</button><br>
+          <button type="button" id="btn-send-message" onclick="publish()">send</button><br>
         </div>
       </div>
     </div>
@@ -58,13 +60,13 @@
           <h4>Subscribe Message Type</h4>
           <input type="text" id="message-type-consumer" value="foobar"><br>
           <br>
-          <button type="button" id="btn-update-consumer-message-type">update</button><br>
+          <button type="button" id="btn-update-consumer-message-type" onclick="updateSubscription()">update</button><br>
       </div>
 
       <div>
           <h4>Message from Publisher</h4>
           <br>
-          <textarea id="message-received"></textarea><br>
+          <textarea id="message-received" rows="4" cols="50"></textarea><br>
         </div>
       </div>
     </div>
