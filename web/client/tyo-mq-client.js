@@ -464,6 +464,8 @@ function Socket() {
     this.io = require('socket.io-client');
 
     this.socket = null;
+
+    this.connected = false;
     
     this.id = function () { 
         return this.socket.id; 
@@ -475,9 +477,14 @@ function Socket() {
 
     var self = this;
     this.onDisconnectListener = function(socket) {
+        self.connected = false;
         if (self.logger)
             self.logger.log("connection lost");
     };
+
+    this.disable = function (what) {
+        io.disable(what);
+    }
 }
 
 /**
@@ -537,6 +544,8 @@ Socket.prototype.connect = function (callback, port, host, protocol, args) {
     this.socket = this.io.connect(this.connectString, args || { transports: ["websocket"] });
 
     this.socket.on('connect', function(socket) {
+        self.connected = true;
+
         if (self.logger)
             self.logger.log("connected to message queue server");
 

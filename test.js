@@ -75,7 +75,7 @@ var main = function () {
         consumer.disconnect();
     }
 
-    mq.createProducer('test')
+    mq.createProducer('tyo-mq-mt-default')
     .then(function (p) {
         console.log('Producer: ' + p.getId());
         producer = p;
@@ -96,7 +96,7 @@ var main = function () {
             console.log('consumer\'s own connect listenr');
         });
 
-        consumer.subscribe('test', (data) => {
+        consumer.subscribe('tyo-mq-mt-default', (data) => {
             test += 1;
             if (data === 'test-a') 
                 console.log('test1 succeeded!');
@@ -106,7 +106,7 @@ var main = function () {
             if (test === 2) disconnectConsumer();
         });
 
-        consumer.subscribe('test2', (data) => {
+        consumer.subscribe('tyo-mq-mt-test2', (data) => {
             test += 1;
             if (data === 'test-b') 
                 console.log('test2 succeeded!');
@@ -126,8 +126,8 @@ var main = function () {
 
         // wait for 3 seconds before we produce message
         setTimeout(function () {
-            producer.produce('test', 'test-a');
-            producer.produce('test2', 'test-b');
+            producer.produce('tyo-mq-mt-default', 'test-a');
+            producer.produce('tyo-mq-mt-test2', 'test-b');
         }, 3000);
 
     });

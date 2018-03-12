@@ -21,6 +21,9 @@ function updateConnectionStatusById(connected, id) {
 }
 
 function updateConnectionStatus(elem, connected) {
+    if (!elem)
+        return;
+
     if (connected) {
         elem.innerHTML = "Connected to MQ Server";
     }
@@ -59,21 +62,32 @@ function connect(entity, id) {
     }
 }
 
-function updateMQServer() {
-    mq.host = document.getElementById('server').value;
+function disableSometing(socket) {
+    socket.disable('browser client cache');
+    socket.disable('heartbeats');
+}
 
+function connectProducerToServer() {
     if (producer) {
+        disableSometing(producer);
+
         connect(producer);
     }
     else {
         var publishType = document.getElementById('message-type-producer').value;
         mq.createProducer(publishType, function (p) {
+            disableSometing(producer);
             producer = p;
 
             onConnect(producer, 'producer-status');
         });
     }
+}
+
+function connectConsumerToServer() {
     if (consumer) {
+        disableSometing(consumer);
+
         connect(consumer);
 
         updateSubscription();
@@ -81,6 +95,8 @@ function updateMQServer() {
     else {
         var subscribeType = document.getElementById('message-type-consumer').value;
         mq.createConsumer(subscribeType, function (c) {
+            disableSometing(consumer);
+
             consumer = c;
 
             onConnect(consumer, 'consumer-status');
@@ -88,12 +104,21 @@ function updateMQServer() {
             updateSubscription();
         });
     }
+}
 
+function updateMQServer() {
+    mq.host = document.getElementById('server').value;
+
+    connectProducerToServer();
+    connectConsumerToServer();
 }
 
 function updateSubscription() {
     var subscribeType = document.getElementById('message-type-consumer').value;
     if (consumer) {
+        if (!consumer.connected)
+            connectConsumerToServer();
+
         consumer.subscribe(subscribeType, function (message) {
             updateMessageFromPublisher(message);
         });

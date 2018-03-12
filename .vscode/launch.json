@@ -23,12 +23,32 @@
             "outDir": null
         },
         {
-            "name": "Launch Test.js",
+            "name": "Launch test.js",
             "type": "node",
             "request": "launch",
             "program": "${workspaceRoot}/test.js",
             "stopOnEntry": false,
             "args": ["-h", "192.168.1.53"],
+            "cwd": "${workspaceRoot}",
+            "preLaunchTask": null,
+            "runtimeExecutable": null,
+            "runtimeArgs": [
+                "--nolazy"
+            ],
+            "env": {
+                "NODE_ENV": "development"
+            },
+            "console": "internalConsole",
+            "sourceMaps": false,
+            "outDir": null
+        },
+        {
+            "name": "Launch send.js",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceRoot}/send.js",
+            "stopOnEntry": false,
+            "args": ["-h", "lab2.tyolab.com", "Relax, it is just a drill"],
             "cwd": "${workspaceRoot}",
             "preLaunchTask": null,
             "runtimeExecutable": null,
