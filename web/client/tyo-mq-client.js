@@ -213,8 +213,8 @@ function MessageQueue (io) {
             },
             port || mq.port,
             host || mq.host,
-            protocol,
-            args
+            protocol || mq.protocol,
+            args || mq.args
             );
         }
         return mySocket;
@@ -276,8 +276,8 @@ function MessageQueue (io) {
                     }, 
                     port || mq.port,
                     host || mq.host,
-                    protocol, 
-                    args,
+                    protocol || mq.protocol,
+                    args || mq.args,
                     onErrorCallback);
                 }
                 catch (err) {
@@ -290,8 +290,8 @@ function MessageQueue (io) {
                 callback, 
                 port || mq.port,
                 host || mq.host,
-                protocol, 
-                args, 
+                protocol || mq.protocol,
+                args || mq.args, 
                 onErrorCallback);
     }
 
@@ -350,8 +350,8 @@ function MessageQueue (io) {
                         },
                         port || mq.port,
                         host || mq.host,
-                        protocol, 
-                        args);
+                        protocol || mq.protocol,
+                        args || mq.args);
                 }
                 catch (err) {
                     reject(err);
@@ -364,8 +364,8 @@ function MessageQueue (io) {
                 callback,
                 port || mq.port,
                 host || mq.host,
-                protocol,
-                args
+                protocol || mq.protocol,
+                args || mq.args
             );
     }
 
@@ -482,9 +482,10 @@ function Socket() {
             self.logger.log("connection lost");
     };
 
-    this.disable = function (what) {
-        io.disable(what);
-    }
+    // Only available from the server side
+    // this.disable = function (what) {
+    //     this.io.disable(what);
+    // }
 }
 
 /**

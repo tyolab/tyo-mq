@@ -63,8 +63,9 @@ function connect(entity, id) {
 }
 
 function disableSometing(socket) {
-    socket.disable('browser client cache');
-    socket.disable('heartbeats');
+    // You can't do it here
+    // socket.disable('browser client cache');
+    // socket.disable('heartbeats');
 }
 
 function connectProducerToServer() {
@@ -76,8 +77,8 @@ function connectProducerToServer() {
     else {
         var publishType = document.getElementById('message-type-producer').value;
         mq.createProducer(publishType, function (p) {
-            disableSometing(producer);
             producer = p;
+            disableSometing(producer);
 
             onConnect(producer, 'producer-status');
         });
@@ -95,9 +96,8 @@ function connectConsumerToServer() {
     else {
         var subscribeType = document.getElementById('message-type-consumer').value;
         mq.createConsumer(subscribeType, function (c) {
-            disableSometing(consumer);
-
             consumer = c;
+            disableSometing(consumer);
 
             onConnect(consumer, 'consumer-status');
 
