@@ -76,23 +76,23 @@ var main = function () {
     }
 
     mq.createProducer('test')
-    .then((p) => {
+    .then(function (p) {
         console.log('Producer: ' + p.getId());
         producer = p;
-        producer.on('connect', () => {
+        producer.on('connect', function ()  {
             console.log('producer\'s own connect listenr');
         });
 
         return mq.createConsumer();
     })
-    .then((c) => {
+    .then(function (c) {
         console.log('Subscriber: ' + c.getId());
         consumer = c;
         var test = 0;
 
         // this listener will be only effective after the current connection is lost
         // and get reconnected again
-        consumer.on('connect', () => {
+        consumer.on('connect', function ()  {
             console.log('consumer\'s own connect listenr');
         });
 
@@ -116,7 +116,7 @@ var main = function () {
             if (test === 2) disconnectConsumer();
         });
 
-        producer.onSubscriberLost(consumer.getId(), () => {
+        producer.onSubscriberLost(consumer.getId(), function ()  {
             test += 1;
 
             console.log('Informed that connection with a subscriber was lost');

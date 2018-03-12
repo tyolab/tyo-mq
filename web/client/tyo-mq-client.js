@@ -208,7 +208,7 @@ function MessageQueue (io) {
             mySocket.logger = this.logger;
 
         if (callback) {
-            mySocket.connect(() => {
+            mySocket.connect(function ()  {
                 callback(mySocket)
             },
             port || mq.port,
@@ -230,7 +230,7 @@ function MessageQueue (io) {
             consumer.logger = context.logger;
 
         if (callback) {
-            consumer.connect(() => {
+            consumer.connect(function ()  {
                 onErrorCallback = onErrorCallback || function (message) {
                     if (mq.logger)
                         mq.logger.error("Error message received: " + message);
@@ -266,12 +266,12 @@ function MessageQueue (io) {
         }
 
         if (!callback) {
-            return new Promise((resolve, reject) => {
+            return new Promise(function (resolve, reject) {
                 try {
                 mq.createConsumerPrivate.call(
                     self,
                     context, 
-                    (consumer) => {
+                    function (consumer) {
                         resolve(consumer);
                     }, 
                     port || mq.port,
@@ -320,7 +320,7 @@ function MessageQueue (io) {
             producer.logger = context.logger;
 
         if (callback)
-            return producer.connect(() => {
+            return producer.connect(function ()  {
                 callback(producer);
             },
             port,
@@ -339,13 +339,13 @@ function MessageQueue (io) {
     this.createProducer = function (eventDefault, callback, port, host, protocol, args) {
         var self = this;
         if (!callback) {
-            return new Promise((resolve, reject) => {
+            return new Promise(function (resolve, reject) {
                 try {
                     mq.createProducerPrivate.call(
                         self,
                         self,
                         eventDefault, 
-                        (producer) => {
+                        function (producer) {
                             resolve(producer);
                         },
                         port || mq.port,
@@ -546,7 +546,7 @@ Socket.prototype.connect = function (callback, port, host, protocol, args) {
         }
 
         if (self.onConnectListeners && self.onConnectListeners.length > 0) {
-            self.onConnectListeners.forEach((listener) => {
+            self.onConnectListeners.forEach(function (listener) {
                 listener();
             });
         }
@@ -642,7 +642,7 @@ function Subscriber () {
         // On Connect Message will be trigger by system
         sendSubscritionMessage();
         // the connection should be ready before we subscribe the message
-        // this.on('connect', () => {
+        // this.on('connect', function ()  {
         //     sendSubscritionMessage();
         // });
 
@@ -659,7 +659,7 @@ function Subscriber () {
             }
         };
 
-        self.on(consumeEventStr, (obj) => {
+        self.on(consumeEventStr, function (obj) {
             if (context)
                 self.consumes[consumeEventStr].call(context, obj);
             else

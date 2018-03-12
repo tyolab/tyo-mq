@@ -23,7 +23,7 @@ var MessageQueue = require('tyo-mq'),
     producer;
 
 mq.createProducer('testevent')
-.then((p) => {
+.then(function (p) {
     producer = p;
 
     // produce a default event with data {data: 'test'}
@@ -41,9 +41,9 @@ var MessageQueue = require('tyo-mq'),
     consumer;
 
 mq.createConsumer()
-.then((c) => {
+.then(function (c) {
     consumer = c;
-    consumer.on('connect', () => {
+    consumer.on('connect', function ()  {
         console.log('consumer\'s own connect listenr');
     });
 

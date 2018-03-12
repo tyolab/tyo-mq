@@ -35,7 +35,7 @@ function updateMessageFromPublisher(message) {
 }
 
 function publish() {
-    var message = document.getElementById('message-to-send').innerHTML;
+    var message = document.getElementById('message-to-send').value;
     var type = document.getElementById('message-type-producer').value;
     producer.produce(type, message);
 }
@@ -43,7 +43,7 @@ function publish() {
 function onConnect(entity, id) {
     updateConnectionStatusById(true, id);
 
-    entity.on('disconnect', () => {
+    entity.on('disconnect', function ()  {
         updateConnectionStatusById(false, id);
     });
 }
@@ -51,7 +51,7 @@ function onConnect(entity, id) {
 function connect(entity, id) {
     if (entity) {
         entity.disconnect();
-        entity.connect(() => {
+        entity.connect(function ()  {
                     onConnect(entity, id);
                 },
             mq.port,
@@ -67,7 +67,7 @@ function updateMQServer() {
     }
     else {
         var publishType = document.getElementById('message-type-producer').value;
-        mq.createProducer(publishType, (p) => {
+        mq.createProducer(publishType, function (p) {
             producer = p;
 
             onConnect(producer, 'producer-status');
@@ -80,7 +80,7 @@ function updateMQServer() {
     }
     else {
         var subscribeType = document.getElementById('message-type-consumer').value;
-        mq.createConsumer(subscribeType, (c) => {
+        mq.createConsumer(subscribeType, function (c) {
             consumer = c;
 
             onConnect(consumer, 'consumer-status');
@@ -94,7 +94,7 @@ function updateMQServer() {
 function updateSubscription() {
     var subscribeType = document.getElementById('message-type-consumer').value;
     if (consumer) {
-        consumer.subscribe(subscribeType, (message) => {
+        consumer.subscribe(subscribeType, function (message) {
             updateMessageFromPublisher(message);
         });
     }
@@ -105,7 +105,7 @@ function updateSubscription() {
 //         console.log('Subscriber: ' + consumer.getId());
 //         var test = 0;
 
-//         consumer.on('connect', () => {
+//         consumer.on('connect', function ()  {
 //             console.log('consumer\'s own connect listenr');
 //         });
 
