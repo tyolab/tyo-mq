@@ -79,6 +79,9 @@ var main = function () {
     .then(function (p) {
         console.log('Producer: ' + p.getId());
         producer = p;
+        producer.name = "TYO Lab";
+
+        // Reset the onConnect Listener
         producer.on('connect', function ()  {
             console.log('producer\'s own connect listenr');
         });
@@ -96,7 +99,10 @@ var main = function () {
             console.log('consumer\'s own connect listenr');
         });
 
-        consumer.subscribe('tyo-mq-mt-default', (data) => {
+        consumer.subscribe('tyo-mq-mt-default', (data, from) => {
+            if (from)
+                console.log("Received message from")
+
             test += 1;
             if (data === 'test-a') 
                 console.log('test1 succeeded!');
@@ -106,7 +112,7 @@ var main = function () {
             if (test === 2) disconnectConsumer();
         });
 
-        consumer.subscribe('tyo-mq-mt-test2', (data) => {
+        consumer.subscribe('tyo-mq-mt-test2', (data, from) => {
             test += 1;
             if (data === 'test-b') 
                 console.log('test2 succeeded!');

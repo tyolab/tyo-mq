@@ -29,5 +29,13 @@
   "bugs": {
     "url": "https://github.com/tyolab/tyo-mq/issues"
   },
-  "homepage": "https://github.com/tyolab/tyo-mq#readme"
+  "homepage": "https://github.com/tyolab/tyo-mq#readme",
+  "keywords": [
+    "Producer",
+    "Consumer",
+    "Publisher",
+    "Subscriber",
+    "Message Queue",
+    "socket.io"
+  ]
 }
