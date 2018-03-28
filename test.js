@@ -86,12 +86,11 @@ var main = function () {
             console.log('producer\'s own connect listenr');
         });
 
-        return mq.createConsumer();
+        return mq.createConsumer("TYO Lab Tester");
     })
     .then(function (c) {
         console.log('Subscriber: ' + c.getId());
         consumer = c;
-        consumer.name = "TYO Lab Tester"
         var test = 0;
 
         // this listener will be only effective after the current connection is lost
@@ -100,7 +99,7 @@ var main = function () {
             console.log('consumer\'s own connect listenr');
         });
 
-        consumer.subscribe('tyo-mq-mt-default', (data, from) => {
+        consumer.subscribe(producer.name, 'tyo-mq-mt-default', (data, from) => {
             if (from)
                 console.log("Received message from")
 
@@ -113,7 +112,7 @@ var main = function () {
             if (test === 2) disconnectConsumer();
         });
 
-        consumer.subscribe('tyo-mq-mt-test2', (data, from) => {
+        consumer.subscribe(producer.name, 'tyo-mq-mt-test2', (data, from) => {
             test += 1;
             if (data === 'test-b') 
                 console.log('test2 succeeded!');
