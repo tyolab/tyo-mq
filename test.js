@@ -91,6 +91,7 @@ var main = function () {
     .then(function (c) {
         console.log('Subscriber: ' + c.getId());
         consumer = c;
+        consumer.name = "TYO Lab Tester"
         var test = 0;
 
         // this listener will be only effective after the current connection is lost
