@@ -41,7 +41,7 @@ Events.prototype.toConsumeEvent = function (event) {
  * 
  */
 
-Events.prototype.toOnDisconnectFromProducerEvent = function (id) {
+Events.prototype.toOnDisconnectEvent = function (id) {
     return 'DISCONNECT-' + id; // 'DISCONNECT'; // 
 }
 
@@ -183,7 +183,7 @@ function MessageQueue (io) {
              */
 
             socket.on('disconnect', function () {
-                var event = eventManager.toOnDisconnectFromProducerEvent(socket.id);
+                var event = eventManager.toOnDisconnectEvent(socket.id);
                 var message = {event: 'DISCONNECT', who: socket.id};
                 generateMessage(event, message);
             });
@@ -422,7 +422,7 @@ function Producer (event) {
      */
 
     this.onSubscriberLost = function (id, callback) {
-        var event = {event: events.toOnDisconnectFromProducerEvent(id), id: this.getId()};
+        var event = {event: events.toOnDisconnectEvent(id), id: this.getId()};
         this.subscribe(event, callback);
     };
 
