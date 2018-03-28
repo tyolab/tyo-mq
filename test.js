@@ -75,7 +75,7 @@ var main = function () {
         consumer.disconnect();
     }
 
-    mq.createProducer('tyo-mq-mt-default')
+    mq.createProducer()
     .then(function (p) {
         console.log('Producer: ' + p.getId());
         producer = p;
