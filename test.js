@@ -75,11 +75,10 @@ var main = function () {
         consumer.disconnect();
     }
 
-    mq.createProducer()
+    mq.createProducer("TYO Lab")
     .then(function (p) {
         console.log('Producer: ' + p.getId());
         producer = p;
-        producer.name = "TYO Lab";
 
         // Reset the onConnect Listener
         producer.on('connect', function ()  {
