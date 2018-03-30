@@ -59,7 +59,7 @@ module.exports = events;
 },{}],2:[function(require,module,exports){
 var Socket          = require('./socket'),
     Subscriber      = require('./subscriber'),
-    Producer        = require('./producer'),
+    Producer        = require('./publisher'),
     eventManager    = require('./events');
 
 function MessageQueue (io) {
