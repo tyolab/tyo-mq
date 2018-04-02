@@ -212,6 +212,8 @@ function MessageQueue (io) {
             function subscribeMessage (event, producer, consumer) {
                 var eventStr, id;
 
+                console.error("Consumer (name: " + consumer + ", id: " + socket.id + " subscribe: " + event + " from: " + producer);
+
                 eventStr = eventManager.toEventString(event);
 
                 // id is the message subscriber's id
@@ -394,6 +396,8 @@ function MessageQueue (io) {
                     sendErrorMessage({message: "Incorrect consumer's name", code: -1});
                     return;
                 }
+
+                console.error("A consumer (name: " + consumer.name + ", id: " + socket.id + " has joined.");
 
                 // unlike producer, consumer doesn't need to know the status of the producer
                 var consumerMeta = getConsumerMetaInfo(consumer.name);
@@ -697,15 +701,26 @@ function MessageQueue (io) {
      * Create a producer
      */
 
-    this.createProducer = function (name, callback, port, host, protocol, args) {
+    this.createProducer = function (name, eventDefault, callback, port, host, protocol, args) {
         var self = this;
+
+        if (eventDefault && typeof eventDefault === 'function') {
+            args = protocol;
+            protocol = host;
+            host = port;
+            port = callback;
+            callback = eventDefault;
+            eventDefault = null;
+        }
+
         if (!callback) {
             return new Promise(function (resolve, reject) {
                 try {
                     mq.createProducerPrivate.call(
                         self,
                         self,
-                        name, 
+                        name,
+                        eventDefault,
                         function (producer) {
                             resolve(producer);
                         },
@@ -721,7 +736,8 @@ function MessageQueue (io) {
         }
         else
             mq.createProducerPrivate(self, 
-                name, 
+                name,
+                eventDefault,
                 callback,
                 port || mq.port,
                 host || mq.host,
@@ -1046,16 +1062,18 @@ Socket.prototype.connect = function (callback, port, host, protocol, args) {
 
         if (self.logger)
             self.logger.log("connected to message queue server");
-
-        if (callback) {
-            callback();
-            callback = null;
-        }
+        
+        self.onConnect();
 
         if (self.onConnectListeners && self.onConnectListeners.length > 0) {
             self.onConnectListeners.forEach(function (listener) {
                 listener();
             });
+        }
+
+        if (callback) {
+            callback();
+            callback = null;
         }
     });
 
