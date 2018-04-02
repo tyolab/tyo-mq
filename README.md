@@ -1,6 +1,6 @@
 # tyo-mq
 
-TYO-MQ is a distributed messaging service with socket.io. 
+TYO-MQ is a distributed messaging (pub/sub) service with socket.io. 
 
 At the moment the message queuing is not implemented yet, which means all messages are sent instantly without confirmation of message delivery or recieving. So message subcriber(s) will need to be online in order to recieve the message.
 
@@ -72,6 +72,7 @@ browserify web/web.js -o web/client/tyo-mq-client.js
 ```
 
 ## TODO list
+* implement the message queuing
 * message queuing if intended subscriber is down, resend message when it is up
 * message delivery for one or some intended subscribers only
 
