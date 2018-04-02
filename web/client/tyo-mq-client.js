@@ -1,4 +1,16 @@
-(function(){function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s}return e})()({1:[function(require,module,exports){
+(function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
+'use strict'
+
+function Constants() {
+    this.ANONYMOUS = "ANONYMOUS";
+    this.EVENT_DEFAULT = 'tyo-mq-mt-default';
+    this.SYSTEM = "TYO-MQ-SYSTEM";
+}
+
+var constants = constants || new Constants();
+
+module.exports = constants;
+},{}],2:[function(require,module,exports){
 /**
  * @file events.js
  */
@@ -42,7 +54,7 @@ Events.prototype.toConsumeEvent = function (event) {
  */
 
 Events.prototype.toOnDisconnectEvent = function (id) {
-    return 'DISCONNECT-' + id; // 'DISCONNECT'; // 
+    return 'DISCONNECT-' + id;
 }
 
 /**
@@ -54,13 +66,22 @@ Events.prototype.toOnUnsubscribeEvent =function  (event, id) {
     return 'UNSUBSCRIBE-' + eventStr + '-' + id;
 }
 
+/**
+ * 
+ */
+Events.prototype.toOnSubscribeEvent = function (id) {
+    return 'SUBSCRIBE-TO' + ((id) ? "-" + id : "");
+}
+
 var events = events || new Events();
 module.exports = events;
-},{}],2:[function(require,module,exports){
+},{}],3:[function(require,module,exports){
 var Socket          = require('./socket'),
     Subscriber      = require('./subscriber'),
     Producer        = require('./publisher'),
     eventManager    = require('./events');
+
+const Constants = require('./constants');
 
 function MessageQueue (io) {
     /**
@@ -71,42 +92,201 @@ function MessageQueue (io) {
     this.host = null;
 
     var mq = this;
+
+    var subscriptions = {};
+    var producers = {};
+    var consumers = {};
+
+    var getEventSubscriptions = function (eventStr) {
+        subscriptions[eventStr] = subscriptions[eventStr] || {};
+        return subscriptions[eventStr];
+    }
+
+    var getEventSubscriber = function (eventStr, consumer) {
+        consumer = consumer || Constants.ANONYMOUS;
+        var subscriptions = getEventSubscriptions(eventStr);
+
+        subscriptions[consumer] = subscriptions[consumer] || {};
+        return subscriptions[consumer];
+    }
+
     /**
-     * Start the message queue server with specific port
+     * @todo
+     * Each event may be unqiue, deal with later
+     * 
+     * @param {*} producer 
      */
+
+    var getProducerMetaInfo = function (producer) {
+        producer = producer || Constants.ANONYMOUS;
+        return producers[producer];
+    }
+
+    /**
+     * 
+     * @param {*} consumer 
+     */
+
+    var getConsumerMetaInfo = function (consumer) {
+        consumer = consumer || Constants.ANONYMOUS;
+        consumers[consumer] = consumers[consumer] || {subscribeTos: new Set()};
+        return consumers[consumer];
+    }
+
+    var deleteConsumerFromSubscriptions = function (consumer) {
+        for (var event in subscriptions) {
+            if (subscriptions[event][consumer])
+                delete subscriptions[event][consumer];
+        }
+    }
+
+    /**
+     * Actually we don't need to delete the subscription if the consumer lost connection, do we? 
+     */
+
+    var deleteProducerFromSubscriptions = function (producer) {
+        for (var event in subscriptions) {
+            for (var consumer in subscriptions[event]) {
+                var subscription = getEventSubscriber(event, consumer);
+
+                if (subscription.subscribeTo == producer) {
+                    delete subscriptions[event][consumer];
+
+                    var size = 0;
+                    for (var key in subscriptions[event])
+                        ++size;
+
+                    if (size === 0)
+                        delete subscriptions[event];
+                }
+            }
+        }
+    }
+
+    var getSubscribersByProducer = function (producer) {
+        var ids = {};
+
+        for (var event in subscriptions) {
+            for (var consumer in subscriptions[event]) {
+                var subscription = getEventSubscriber(event, consumer);
+
+                // already sent the subscription message to producer
+                if (subscription.acked)
+                    continue;
+
+                if (subscription.subscribeTo === producer) {
+                    if (!ids[subscription.id]) {
+                        ids[subscription.id] = {};
+                        ids[subscription.id].events = [];
+                        ids[subscription.id].name = subscription.name;
+                    }
+                }
+            }
+
+            for (var id in ids)
+                ids[id].events.push(event);
+        }
+
+        return ids;
+    }
 
      /**
       * Create the queue
       */
 
     this.create = function () {
+        // 
         var self = this;
 
         // maintain a request table for whom is requesting what
         // 1 success, 
-        
+
         // creating a new websocket then wait for connection
         io.sockets.on('connection', function(socket) {
+
+            function sendErrorMessage (msg) {
+                mq.send(socket.id, 'ERROR', msg);
+            }
             
             // system message all CAPS
-            function subscribeMessage (event) {
+            function subscribeMessage (event, producer, consumer) {
                 var eventStr, id;
 
                 eventStr = eventManager.toEventString(event);
 
                 // id is the message subscriber's id
-                id = event.id || socket.id;
+                id = socket.id;
 
-                subscriptions[eventStr] = subscriptions[eventStr] || {};
-                if (!subscriptions[eventStr][id]) {
-                    subscriptions[eventStr][id] = true;
+                var subscription = getEventSubscriber(eventStr, consumer);
+                // the subscription is neither confirmed or authorized
+                subscription.id = id;
+                subscription.acked = false;
+                subscription.name = consumer;
+                subscription.subscribeTo = producer;
+
+                // regisiter consumer if it hasn't done so
+                var consumerMeta = getConsumerMetaInfo(consumer);
+                var subcribeTos;
+                // if (!consumerMeta) {
+                //     consumers[consumer] = {id: id, subscribeTos: new Set()};
+                // }
+                
+                subcribeTos = consumerMeta.subscribeTos;
+
+                if (!subcribeTos.has(producer)) {
+                    subcribeTos.add(producer);
                 }
+
+                // check if producer is registered
+                var producerMeta = getProducerMetaInfo(producer);
+                if (producerMeta) {
+
+                    if (!producerMeta.subscribers.has(consumer))
+                        producerMeta.subscribers.add(consumer);
+
+                    sendSubscriptionMessageWithConsumerInfo(producerMeta.id, [eventStr], producer, consumer, id);
+
+                    subscription.acked = true;
+                    subscription.subscribeToId = producerMeta.id;
+                    // @todo
+                    // send subscription confirmation / rejection here
+                    
+                }
+            }
+
+            // send subscrition message
+            function sendSubscriptionMessage(events, producer, consumer, consumerId) {
+                var producerMeta = getProducerMetaInfo(producer);
+
+                if (producerMeta && producerMeta.id)
+                    sendSubscriptionMessageWithConsumerInfo(producerMeta.id, events, producer, consumer, consumerId);
+            }
+
+            // it seems the new updates weren't pushed to the remote repo
+            function sendSubscriptionMessageWithConsumerInfo(id, events, producer, consumer, consumerId) {
+                var onSubscribeEvent = eventManager.toOnSubscribeEvent(id);
+                sendMessage(id, onSubscribeEvent, {name:consumer, id:consumerId, events:events});
             }
 
             // subscribe message
             socket.on('SUBSCRIBE', function (event) {
                 if ((typeof event === 'object' && event.event) || (typeof event) === 'string') {
-                    subscribeMessage (event);
+                    var targetEvent;
+                    var producer;
+                    var consumer;
+                    if (event.event) {
+                        targetEvent = event.event;
+                        producer = event.producer;
+                        consumer = event.consumer;
+                    }
+                    else {
+                        targetEvent = event;
+                    }
+
+                    producer = producer || Constants.ANONYMOUS;
+                    consumer = consumer || Constants.ANONYMOUS;
+
+                    subscribeMessage(targetEvent, producer, consumer);
 
                     // can't do it in this scope, hasn't figured out why
                     // socket.on(event, function (data) {
@@ -119,12 +299,12 @@ function MessageQueue (io) {
                     // });
                 }
                 else {
-                    var msg = "Message name should be a string";
+                    var msg = "Message name should be a object";
                     if (mq.logger) {
                         mq.logger.error("Incorrect subcription message name: " + event);
                         mq.logger.error(msg);
                     }
-                    mq.send(socket.id, 'ERROR', msg);
+                    sendErrorMessage(msg);
                 }
             });
 
@@ -156,37 +336,210 @@ function MessageQueue (io) {
              });
 
             /**
+             * Send the message for subcriber's consumption
+             */
+
+            function sendConsumeMessage (id, event, message, producer) {
+                sendMessage(id, eventManager.toConsumeEvent(event), {event:event, message:message, from:producer});
+            }
+
+            /**
+             * Send socket message
+             */
+
+            function sendMessage (id, event, message) {
+                mq.send(id, event, message);
+            }
+
+            /**
              * 
              */
 
-            function generateMessage (event, message) {
-                for (var id in subscriptions[event]) {
-                    if (subscriptions[event][id]) {
-                        mq.send(id, eventManager.toConsumeEvent(event), {event:event, message:message});
-                    }
+            function generateMessage (event, message, producer) {
+                producer = producer || Constants.ANONYMOUS;
+
+                var subscriptions = getEventSubscriptions(event);
+
+                for (var consumer in subscriptions) {
+                    var subcription = subscriptions[consumer];
+
+                    if (subcription.subscribeTo === producer)
+                    // for (var id in subscription) {
+                    //     if (subscription[id]) {
+                            sendConsumeMessage(subcription.id, event, message, producer);
+                        // }
+                    // }
                 }
             };
 
             /**
-             * 
+             * Relay message from producer to consumer
              */
 
             socket.on('PRODUCE', function (obj) {
                 var event = obj.event;
                 var message = obj.message;
+                var producerName = obj.from;
 
-                generateMessage(event, message);
+                generateMessage(event, message, producerName);
             });
 
             /**
+             * On a consumer is ready
+             */
+
+            socket.on('CONSUMER', function (consumer) {
+                if (typeof consumer.name !== "string") {
+                    console.error("Received incorrect consumer information");
+                    sendErrorMessage({message: "Incorrect consumer's name", code: -1});
+                    return;
+                }
+
+                // unlike producer, consumer doesn't need to know the status of the producer
+                var consumerMeta = getConsumerMetaInfo(consumer.name);
+                consumerMeta.id = socket.id;
+            });
+
+            /**
+             * On producer is ready
+             */
+            socket.on('PRODUCER', function (producer) {
+                if (typeof producer.name !== "string") {
+                    console.error("Received incorrect producer information");
+                    sendErrorMessage({message: "Incorrect producer's name", code: -1});
+                    return;
+                }
+
+                console.log("A producer (name: " + producer + ", id: " + socket.id + " has joined.");
+
+                var producerName = producer.name;
+                // var producerMeta = getProducerMetaInfo(producerName);
+
+                /**
+                 * @todo
+                 * 
+                 *  Already a producer with such a name exists
+                 */
+                // if (producerMeta) {
+                //     // @todo
+                //     socket.disconnect();
+                //     return;
+                // }
+
+                var producerMeta = producers[producerName] = producers[producerName] || {subscribers: new Set()};
+                producerMeta.id = socket.id;
+
+                // in case the consumer connect before producer is ready
+                var ids = getSubscribersByProducer(producerName);
+                for (var obj in ids) {
+                    var consumer = obj.name;
+                    var id = obj.id;
+
+                    if (!producerMeta.subscribers.has(consumer))
+                        producerMeta.subscribers.add(consumer);
+                    
+                    sendSubscriptionMessage(obj.events, producerName, consumer, id);
+
+                    for (var event in obj.events) {
+                        var subscription = getEventSubscriber(event, consumer);
+                        subscription.acked = true;
+                        subscription.subscribeToId = socket.id;
+                    }
+                }
+            });
+
+            /**
+             * On HELLO
+             */
+
+            socket.on('HELLO', function (message) {
+                console.log("Received greetings from client who claims his/her name is " + message.name + " and a " + message.type);
+            });
+
+            /**
+             * @todo
+             * On Authentication
+             */
+            socket.on('AUTHENTICATION', function (message) {
+
+            });
+
+            /**
+             * On Disconnect
              * 
+             * Please be noted losing connection doesn't mean unscribe / stop producing
+             * 
+             * for unsubscribe / unpublish, see #UNSUBSCRIBE, #UNPUBLISH messages
              */
 
             socket.on('disconnect', function () {
                 var event = eventManager.toOnDisconnectEvent(socket.id);
                 var message = {event: 'DISCONNECT', who: socket.id};
-                generateMessage(event, message);
+                
+                var id = socket.id;
+
+                /**
+                 * @todo
+                 * 
+                 * update the registration information
+                 * 
+                 */
+                var isProducer = false;
+                var event = eventManager.toOnDisconnectEvent(id);
+
+                 // check if it is a producer
+                for (var name in producers) {
+                    var producerMeta = producers[name];
+                    if (producerMeta.id === id) {
+                        isProducer = true;
+
+                        producerMeta.subscribers.forEach (function (consumerName) {
+                            var consumerMeta = getConsumerMetaInfo(consumerName);
+
+                            if (consumerMeta) {
+                                // consumerMeta.subcribeTos.delete(name);
+                                sendMessage(consumerMeta.id, event, {producer: name, id: id});
+                            }
+                        });
+
+                        // deleteProducerFromSubscriptions(name);
+                        // no we are not gonna do it, as consumer still can wait for producer to come back online
+                        // for whatever reasons it loses connection
+
+                        // delete producers[name];
+
+                        /**
+                         * @todo
+                         * 
+                         * send disconn info to subscribers
+                         */
+                        break;
+                    }
+                }
+
+                 // check if it is a consumer
+                 if (!isProducer) {
+                     var consumerId;
+                     for (var consumerName in consumers) {
+                        if (consumers[consumerName].id === id) {
+                            consumers[consumerName].subscribeTos.forEach( function (producerName) {
+                                var producerMeta = getProducerMetaInfo(producerName);
+
+                                if (producerMeta) {
+                                    sendMessage(producerMeta.id, event, {consumer: consumerName, id: id});
+                                    // producerMeta.subscribers.delete(consumerName);
+                                }
+                            }); 
+
+                            // deleteConsumerFromSubscriptions(consumerName);
+
+                            // delete consumers[consumerName];
+                            break;
+                        }
+                     }
+                 }
             });
+
         });
 
         /**
@@ -195,8 +548,6 @@ function MessageQueue (io) {
 
         this.start = this.create;
     }
-
-    var subscriptions = {};
 
     /**
      * Create the comminucation channel (e.g. socket)
@@ -224,8 +575,9 @@ function MessageQueue (io) {
      * private function
      */
 
-    this.createConsumerPrivate = function (context, callback, port, host, protocol, args, onErrorCallback) {
-        var consumer = new Subscriber();
+    this.createConsumerPrivate = function (context, name, callback, port, host, protocol, args, onErrorCallback) {
+        var consumer = new Subscriber(name);
+        
         if (context && context.logger)
             consumer.logger = context.logger;
 
@@ -236,7 +588,13 @@ function MessageQueue (io) {
                         mq.logger.error("Error message received: " + message);
                 };
 
-                consumer.on('ERROR', onErrorCallback);
+                if (onErrorCallback) {
+                    var oldOnError = consumer.onError;
+                    consumer.on('ERROR', function () {
+                        oldOnError.call(consumer);
+                        onErrorCallback();
+                    });
+                }
 
                 callback(consumer);
             },
@@ -253,15 +611,16 @@ function MessageQueue (io) {
      * Create a consumer
      */
 
-    this.createConsumer = function (context, callback, port, host, protocol, args, onErrorCallback) {
+    this.createConsumer = function (context, name, callback, port, host, protocol, args, onErrorCallback) {
         var self = this;
-        if (context && typeof context === 'function') {
+        if (context && typeof context === 'string') {
             onErrorCallback = args;
             args = protocol;
             protocol = host;
             host = port;
             port = callback;
-            callback = context;
+            callback = name;
+            name = context;
             context = this;
         }
 
@@ -271,6 +630,7 @@ function MessageQueue (io) {
                 mq.createConsumerPrivate.call(
                     self,
                     context, 
+                    name,
                     function (consumer) {
                         resolve(consumer);
                     }, 
@@ -287,6 +647,7 @@ function MessageQueue (io) {
         }
         else
             mq.createConsumerPrivate(context, 
+                name,
                 callback, 
                 port || mq.port,
                 host || mq.host,
@@ -305,7 +666,7 @@ function MessageQueue (io) {
      * private function
      */
      
-     this.createProducerPrivate = function (context, eventDefault, callback, port, host, protocol, args) {
+     this.createProducerPrivate = function (context, name, eventDefault, callback, port, host, protocol, args) {
         if (!callback && typeof eventDefault === 'function') {
             args = protocol;
             protocol = host;
@@ -315,7 +676,7 @@ function MessageQueue (io) {
             eventDefault = null;
         }
 
-        var producer = new Producer(eventDefault);
+        var producer = new Producer(name, eventDefault);
         if (context && context.logger)
             producer.logger = context.logger;
 
@@ -336,7 +697,7 @@ function MessageQueue (io) {
      * Create a producer
      */
 
-    this.createProducer = function (eventDefault, callback, port, host, protocol, args) {
+    this.createProducer = function (name, callback, port, host, protocol, args) {
         var self = this;
         if (!callback) {
             return new Promise(function (resolve, reject) {
@@ -344,7 +705,7 @@ function MessageQueue (io) {
                     mq.createProducerPrivate.call(
                         self,
                         self,
-                        eventDefault, 
+                        name, 
                         function (producer) {
                             resolve(producer);
                         },
@@ -360,7 +721,7 @@ function MessageQueue (io) {
         }
         else
             mq.createProducerPrivate(self, 
-                eventDefault, 
+                name, 
                 callback,
                 port || mq.port,
                 host || mq.host,
@@ -384,18 +745,39 @@ function MessageQueue (io) {
 };
 
 module.exports = MessageQueue;
-},{"./events":1,"./producer":3,"./socket":4,"./subscriber":5}],3:[function(require,module,exports){
+},{"./constants":1,"./events":2,"./publisher":4,"./socket":5,"./subscriber":6}],4:[function(require,module,exports){
 /**
  * @file producer.js
  */
 const util      = require('util'),
-      events    = require('./events');;
+      events    = require('./events'),
+      Constants = require('./constants');
 
 var Subscriber  = require('./subscriber');
 
-function Producer (event) {
-    this.eventDefault = event;
-    Subscriber.call(this);
+function SubscriberInfo (name) {
+    this.name = name;
+}
+
+function Publiser (name, event) {
+    // call prarent constructor
+    Subscriber.call(this, name);
+
+    var producer = this;
+    this.eventDefault = event || Constants.EVENT_DEFAULT;
+
+    this.subscribers = {};
+    this.onSubscriptionListener = null;
+
+
+    /**
+     * @override
+     * 
+     */
+
+    this.sendIdentificationInfo = function () {
+        this.sendMessage.call(producer, 'PRODUCER', {name: name});
+    }
 
     /**
      * Event produce function
@@ -412,38 +794,81 @@ function Producer (event) {
                 throw new Error('Default event name is not set.');
         }
 
-        //setTimeout(function() {
-            self.sendMessage.call(self, 'PRODUCE', {event:event, message:data});
-        //}, 10);
+        /**
+         * @todo
+         * 1) make an encryption option
+         * 2) Encrypt the message when a cryto algorithm is negotiated 
+         */
+        var message =  {event:event, message:data, from:self.name};
+
+        // Maybe we could delay a bit
+        self.sendMessage.call(self, 'PRODUCE', message);
     };
+
+    /**
+     * On Subscribe
+     */
+    this.setOnSubscriptionListener = function (callback) {
+        var event = events.toOnSubscribeEvent(this.getId());
+        this.on(event, function (data) {
+            console.log("Received subscription information: " + JSON.stringify(data));
+
+            producer.subscribers[data.id] = data;
+
+            // further listener
+            if (producer.onSubscriptionListener)
+                producer.onSubscriptionListener.call(producer, data);
+
+            if (callback)
+                callback(from);
+        });
+    }
 
     /**
      * On Lost connections with subscriber(s)
      */
 
-    this.onSubscriberLost = function (id, callback) {
-        var event = {event: events.toOnDisconnectEvent(id), id: this.getId()};
-        this.subscribe(event, callback);
+    this.setOnSubscriberLostListener = function (id, callback) {
+        var event = events.toOnDisconnectEvent(id);
+        this.on(event, function() {
+            console.log("Lost subscriber's connection");
+            if (callback)
+                callback();
+        });
     };
+
+    this.onSubscriberLost = this.setOnSubscriberLostListener;
 
     /**
      * On Unsubsribe
      */
 
-    this.onUnsubscribed = function (id, callback) {
-        var event = {event: events.toOnUnsubscribeEvent(id), id: this.getId()};
-        this.subscribe(event, callback);
+    this.setOnUnsubscribedListener = function (id, callback) {
+        var event = events.toOnUnsubscribeEvent(id);
+        this.subscribe(event, function() {
+            if (callback)
+                callback();
+        });
     }
+
+    this.onUnsubscribed = this.setOnUnsubscribedListener;
+
+    // Initialisation
+    this.addConnectonListener(function () {
+        var producerName = producer.name || Constants.ANONYMOUS;
+        // producer.sendMessage.call(producer, 'PRODUCER', {name: producerName});
+        producer.setOnSubscriptionListener();
+    });
 }
 
 /**
  * Inherits from Socket
  */
 
-util.inherits(Producer, Subscriber);
+util.inherits(Publiser, Subscriber);
 
-module.exports = Producer;
-},{"./events":1,"./subscriber":5,"util":58}],4:[function(require,module,exports){
+module.exports = Publiser;
+},{"./constants":1,"./events":2,"./subscriber":6,"util":59}],5:[function(require,module,exports){
 (function (process){
 /**
  * @file socket.js
@@ -454,19 +879,36 @@ module.exports = Producer;
 
 'use strict';
 
+const Constants = require('./constants');
+
 /**
  * Socket Class
  */
 
 function Socket() {
+
+    /**
+     * Autoconnect
+     */
+
     this.autoreconnect = true;
     
+    /**
+     * SocketIO instance
+     */
+
     this.io = require('socket.io-client');
 
+    /**
+     * Socket Instance from socket.io
+     */
     this.socket = null;
 
     this.connected = false;
     
+    /**
+     * Socket Id
+     */
     this.id = function () { 
         return this.socket.id; 
     }
@@ -474,6 +916,14 @@ function Socket() {
     this.logger = (process.env.NODE_ENV === 'production') ? null : console;
 
     this.onConnectListeners = null;
+
+    /**
+     * Add on connect listener
+     */
+    this.addConnectonListener = function (listener) {
+        this.onConnectListeners = this.onConnectListeners || [];
+        this.onConnectListeners.push(listener);
+    }
 
     var self = this;
     this.onDisconnectListener = function(socket) {
@@ -486,6 +936,53 @@ function Socket() {
     // this.disable = function (what) {
     //     this.io.disable(what);
     // }
+
+    /**
+     * The name of the socket such as a name of an App
+     */
+
+    this.name = Constants.ANONYMOUS;
+
+    /**
+     * Alias
+     */
+
+    this.alias = null;
+
+    /**
+    this.serial_id = -1;
+    this.sendIdentificationInfo = function () {
+        // do nothing yet
+    }
+
+     * On Error 
+     */
+    this.onError = function (message) {
+        console.error(message);
+    }
+
+    /**
+     * On Connect
+     */
+    this.onConnect = function () {
+        this.sendIdentificationInfo();
+
+        this.on("ERROR", function (message) {
+            if (self.onError)
+                self.onError.call(self, message);
+        });
+    }
+
+    /**
+     * On Disconnect
+     */
+
+    this.onDisconnect = function () {
+        this.on("ERROR", function(message) {
+            if (self.onError)
+                self.onError.call(self, message);
+        });
+    }
 }
 
 /**
@@ -589,10 +1086,7 @@ Socket.prototype.sendMessage = function (event, msg, callback) {
 
 Socket.prototype.on = function (event, callback) {
     if (event === 'connect') {
-        if (!this.onConnectListeners)
-            this.onConnectListeners = [];
-        
-        this.onConnectListeners.push(callback);
+        this.addConnectonListener(callback);
         return;
     }
     this.socket.on(event, callback);
@@ -610,13 +1104,14 @@ Socket.prototype.getId = Socket.prototype.getSocketId;
 
 module.exports = Socket;
 }).call(this,require('_process'))
-},{"_process":55,"socket.io-client":38}],5:[function(require,module,exports){
+},{"./constants":1,"_process":56,"socket.io-client":39}],6:[function(require,module,exports){
 /**
  * @file subscriber.js
  */
 
 const util        = require('util'),
-      events      = require('./events');
+      events      = require('./events'),
+      Constants = require('./constants');
 
 var Socket = require('./socket');
 
@@ -624,29 +1119,57 @@ var Socket = require('./socket');
  * 
  */
 
-function Subscriber () {
+function Subscriber (name) {
     this.context = null;
 
     Socket.call(this);
+    this.name = name || Constants.ANONYMOUS;
 
+    var subscriber = this;
+
+    /**
+     * @override
+     * 
+     */
+
+    this.sendIdentificationInfo = function () {
+        this.sendMessage.call(subscriber, 'CONSUMER', {name: name});
+    }
 
     /**
      * Subscribe message
+     * 
+     * If an event name is not provided, then we subscribe all the messages from the producer
      */
 
-    this.subscribe = function (context, event, onConsumeCallback) {
+    this.subscribe = function (context, who, event, onConsumeCallback) {
         var self = this;
 
         if (!onConsumeCallback) {
             onConsumeCallback = event;
-            event = context;
-            context = null;
+            event = who;
+            who = context;
+            context = self;
         }
 
-        var eventStr = events.toEventString(event);
+        if ((typeof event) !== "string") {
+            onConsumeCallback = event;
+            event = null;
+        }
+
+        var eventStr;
+        if (event)
+            eventStr = events.toEventString(event);
+        else
+            eventStr = who + "-ALL";
+        /**
+         * @todo
+         * 
+         * deal with the ALL events later
+         */
 
         function sendSubscritionMessage () {
-            self.sendMessage('SUBSCRIBE', event);
+            self.sendMessage('SUBSCRIBE', {event:eventStr, producer:who, consumer:self.name});
         }
 
         // On Connect Message will be trigger by system
@@ -662,10 +1185,14 @@ function Subscriber () {
         var consumeEventStr = events.toConsumeEvent(eventStr);
         self.consumes[consumeEventStr] = function (obj) {
             var intendedEvent = obj.event;
+
+            // if the message is encrypted, then it needs to be decrypted first
             var message = obj.message;
 
+            var from = obj.from || message.from;
+
             if (intendedEvent === eventStr) {
-                onConsumeCallback(message);
+                onConsumeCallback(message, from);
             }
         };
 
@@ -676,6 +1203,8 @@ function Subscriber () {
                 self.consumes[consumeEventStr](obj);
         });
     };
+
+    
 }
 
 /**
@@ -685,7 +1214,7 @@ function Subscriber () {
 util.inherits(Subscriber, Socket);
 
 module.exports = Subscriber;
-},{"./events":1,"./socket":4,"util":58}],6:[function(require,module,exports){
+},{"./constants":1,"./events":2,"./socket":5,"util":59}],7:[function(require,module,exports){
 module.exports = after
 
 function after(count, callback, err_cb) {
@@ -715,7 +1244,7 @@ function after(count, callback, err_cb) {
 
 function noop() {}
 
-},{}],7:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 /**
  * An abstraction for slicing an arraybuffer even when
  * ArrayBuffer.prototype.slice is not supported
@@ -746,7 +1275,7 @@ module.exports = function(arraybuffer, start, end) {
   return result.buffer;
 };
 
-},{}],8:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 
 /**
  * Expose `Backoff`.
@@ -833,7 +1362,7 @@ Backoff.prototype.setJitter = function(jitter){
 };
 
 
-},{}],9:[function(require,module,exports){
+},{}],10:[function(require,module,exports){
 /*
  * base64-arraybuffer
  * https://github.com/niklasvh/base64-arraybuffer
@@ -902,7 +1431,7 @@ Backoff.prototype.setJitter = function(jitter){
   };
 })();
 
-},{}],10:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 (function (global){
 /**
  * Create a blob builder even when vendor prefixes exist
@@ -1002,7 +1531,7 @@ module.exports = (function() {
 })();
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],11:[function(require,module,exports){
+},{}],12:[function(require,module,exports){
 /**
  * Slice reference.
  */
@@ -1027,7 +1556,7 @@ module.exports = function(obj, fn){
   }
 };
 
-},{}],12:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 
 /**
  * Expose `Emitter`.
@@ -1193,7 +1722,7 @@ Emitter.prototype.hasListeners = function(event){
   return !! this.listeners(event).length;
 };
 
-},{}],13:[function(require,module,exports){
+},{}],14:[function(require,module,exports){
 
 module.exports = function(a, b){
   var fn = function(){};
@@ -1201,7 +1730,7 @@ module.exports = function(a, b){
   a.prototype = new fn;
   a.prototype.constructor = a;
 };
-},{}],14:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 (function (process){
 
 /**
@@ -1382,7 +1911,7 @@ function localstorage(){
 }
 
 }).call(this,require('_process'))
-},{"./debug":15,"_process":55}],15:[function(require,module,exports){
+},{"./debug":16,"_process":56}],16:[function(require,module,exports){
 
 /**
  * This is the common logic for both the Node.js and web browser
@@ -1584,11 +2113,11 @@ function coerce(val) {
   return val;
 }
 
-},{"ms":34}],16:[function(require,module,exports){
+},{"ms":35}],17:[function(require,module,exports){
 
 module.exports = require('./lib/index');
 
-},{"./lib/index":17}],17:[function(require,module,exports){
+},{"./lib/index":18}],18:[function(require,module,exports){
 
 module.exports = require('./socket');
 
@@ -1600,7 +2129,7 @@ module.exports = require('./socket');
  */
 module.exports.parser = require('engine.io-parser');
 
-},{"./socket":18,"engine.io-parser":27}],18:[function(require,module,exports){
+},{"./socket":19,"engine.io-parser":28}],19:[function(require,module,exports){
 (function (global){
 /**
  * Module dependencies.
@@ -2342,7 +2871,7 @@ Socket.prototype.filterUpgrades = function (upgrades) {
 };
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./transport":19,"./transports/index":20,"component-emitter":26,"debug":14,"engine.io-parser":27,"indexof":31,"parsejson":35,"parseqs":36,"parseuri":37}],19:[function(require,module,exports){
+},{"./transport":20,"./transports/index":21,"component-emitter":27,"debug":15,"engine.io-parser":28,"indexof":32,"parsejson":36,"parseqs":37,"parseuri":38}],20:[function(require,module,exports){
 /**
  * Module dependencies.
  */
@@ -2501,7 +3030,7 @@ Transport.prototype.onClose = function () {
   this.emit('close');
 };
 
-},{"component-emitter":26,"engine.io-parser":27}],20:[function(require,module,exports){
+},{"component-emitter":27,"engine.io-parser":28}],21:[function(require,module,exports){
 (function (global){
 /**
  * Module dependencies
@@ -2558,7 +3087,7 @@ function polling (opts) {
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./polling-jsonp":21,"./polling-xhr":22,"./websocket":24,"xmlhttprequest-ssl":25}],21:[function(require,module,exports){
+},{"./polling-jsonp":22,"./polling-xhr":23,"./websocket":25,"xmlhttprequest-ssl":26}],22:[function(require,module,exports){
 (function (global){
 
 /**
@@ -2793,7 +3322,7 @@ JSONPPolling.prototype.doWrite = function (data, fn) {
 };
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./polling":23,"component-inherit":13}],22:[function(require,module,exports){
+},{"./polling":24,"component-inherit":14}],23:[function(require,module,exports){
 (function (global){
 /**
  * Module requirements.
@@ -3221,7 +3750,7 @@ function unloadHandler () {
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./polling":23,"component-emitter":26,"component-inherit":13,"debug":14,"xmlhttprequest-ssl":25}],23:[function(require,module,exports){
+},{"./polling":24,"component-emitter":27,"component-inherit":14,"debug":15,"xmlhttprequest-ssl":26}],24:[function(require,module,exports){
 /**
  * Module dependencies.
  */
@@ -3468,7 +3997,7 @@ Polling.prototype.uri = function () {
   return schema + '://' + (ipv6 ? '[' + this.hostname + ']' : this.hostname) + port + this.path + query;
 };
 
-},{"../transport":19,"component-inherit":13,"debug":14,"engine.io-parser":27,"parseqs":36,"xmlhttprequest-ssl":25,"yeast":52}],24:[function(require,module,exports){
+},{"../transport":20,"component-inherit":14,"debug":15,"engine.io-parser":28,"parseqs":37,"xmlhttprequest-ssl":26,"yeast":53}],25:[function(require,module,exports){
 (function (global){
 /**
  * Module dependencies.
@@ -3757,7 +4286,7 @@ WS.prototype.check = function () {
 };
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"../transport":19,"component-inherit":13,"debug":14,"engine.io-parser":27,"parseqs":36,"ws":54,"yeast":52}],25:[function(require,module,exports){
+},{"../transport":20,"component-inherit":14,"debug":15,"engine.io-parser":28,"parseqs":37,"ws":55,"yeast":53}],26:[function(require,module,exports){
 (function (global){
 // browser shim for xmlhttprequest module
 
@@ -3798,7 +4327,7 @@ module.exports = function (opts) {
 };
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"has-cors":30}],26:[function(require,module,exports){
+},{"has-cors":31}],27:[function(require,module,exports){
 
 /**
  * Expose `Emitter`.
@@ -3963,7 +4492,7 @@ Emitter.prototype.hasListeners = function(event){
   return !! this.listeners(event).length;
 };
 
-},{}],27:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 (function (global){
 /**
  * Module dependencies.
@@ -4576,7 +5105,7 @@ exports.decodePayloadAsBinary = function (data, binaryType, callback) {
 };
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./keys":28,"after":6,"arraybuffer.slice":7,"base64-arraybuffer":9,"blob":10,"has-binary":29,"wtf-8":51}],28:[function(require,module,exports){
+},{"./keys":29,"after":7,"arraybuffer.slice":8,"base64-arraybuffer":10,"blob":11,"has-binary":30,"wtf-8":52}],29:[function(require,module,exports){
 
 /**
  * Gets the keys for an object.
@@ -4597,7 +5126,7 @@ module.exports = Object.keys || function keys (obj){
   return arr;
 };
 
-},{}],29:[function(require,module,exports){
+},{}],30:[function(require,module,exports){
 (function (global){
 
 /*
@@ -4660,7 +5189,7 @@ function hasBinary(data) {
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"isarray":32}],30:[function(require,module,exports){
+},{"isarray":33}],31:[function(require,module,exports){
 
 /**
  * Module exports.
@@ -4679,7 +5208,7 @@ try {
   module.exports = false;
 }
 
-},{}],31:[function(require,module,exports){
+},{}],32:[function(require,module,exports){
 
 var indexOf = [].indexOf;
 
@@ -4690,12 +5219,12 @@ module.exports = function(arr, obj){
   }
   return -1;
 };
-},{}],32:[function(require,module,exports){
+},{}],33:[function(require,module,exports){
 module.exports = Array.isArray || function (arr) {
   return Object.prototype.toString.call(arr) == '[object Array]';
 };
 
-},{}],33:[function(require,module,exports){
+},{}],34:[function(require,module,exports){
 (function (global){
 /*! JSON v3.3.2 | http://bestiejs.github.io/json3 | Copyright 2012-2014, Kit Cambridge | http://kit.mit-license.org */
 ;(function () {
@@ -5601,7 +6130,7 @@ module.exports = Array.isArray || function (arr) {
 }).call(this);
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],34:[function(require,module,exports){
+},{}],35:[function(require,module,exports){
 /**
  * Helpers.
  */
@@ -5752,7 +6281,7 @@ function plural(ms, n, name) {
   return Math.ceil(ms / n) + ' ' + name + 's'
 }
 
-},{}],35:[function(require,module,exports){
+},{}],36:[function(require,module,exports){
 (function (global){
 /**
  * JSON parse.
@@ -5787,7 +6316,7 @@ module.exports = function parsejson(data) {
   }
 };
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],36:[function(require,module,exports){
+},{}],37:[function(require,module,exports){
 /**
  * Compiles a querystring
  * Returns string representation of the object
@@ -5826,7 +6355,7 @@ exports.decode = function(qs){
   return qry;
 };
 
-},{}],37:[function(require,module,exports){
+},{}],38:[function(require,module,exports){
 /**
  * Parses an URI
  *
@@ -5867,7 +6396,7 @@ module.exports = function parseuri(str) {
     return uri;
 };
 
-},{}],38:[function(require,module,exports){
+},{}],39:[function(require,module,exports){
 
 /**
  * Module dependencies.
@@ -5978,7 +6507,7 @@ exports.connect = lookup;
 exports.Manager = require('./manager');
 exports.Socket = require('./socket');
 
-},{"./manager":39,"./socket":41,"./url":42,"debug":14,"socket.io-parser":45}],39:[function(require,module,exports){
+},{"./manager":40,"./socket":42,"./url":43,"debug":15,"socket.io-parser":46}],40:[function(require,module,exports){
 
 /**
  * Module dependencies.
@@ -6540,7 +7069,7 @@ Manager.prototype.onreconnect = function () {
   this.emitAll('reconnect', attempt);
 };
 
-},{"./on":40,"./socket":41,"backo2":8,"component-bind":11,"component-emitter":43,"debug":14,"engine.io-client":16,"indexof":31,"socket.io-parser":45}],40:[function(require,module,exports){
+},{"./on":41,"./socket":42,"backo2":9,"component-bind":12,"component-emitter":44,"debug":15,"engine.io-client":17,"indexof":32,"socket.io-parser":46}],41:[function(require,module,exports){
 
 /**
  * Module exports.
@@ -6566,7 +7095,7 @@ function on (obj, ev, fn) {
   };
 }
 
-},{}],41:[function(require,module,exports){
+},{}],42:[function(require,module,exports){
 
 /**
  * Module dependencies.
@@ -6987,7 +7516,7 @@ Socket.prototype.compress = function (compress) {
   return this;
 };
 
-},{"./on":40,"component-bind":11,"component-emitter":43,"debug":14,"has-binary":29,"socket.io-parser":45,"to-array":50}],42:[function(require,module,exports){
+},{"./on":41,"component-bind":12,"component-emitter":44,"debug":15,"has-binary":30,"socket.io-parser":46,"to-array":51}],43:[function(require,module,exports){
 (function (global){
 
 /**
@@ -7066,9 +7595,9 @@ function url (uri, loc) {
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"debug":14,"parseuri":37}],43:[function(require,module,exports){
-arguments[4][26][0].apply(exports,arguments)
-},{"dup":26}],44:[function(require,module,exports){
+},{"debug":15,"parseuri":38}],44:[function(require,module,exports){
+arguments[4][27][0].apply(exports,arguments)
+},{"dup":27}],45:[function(require,module,exports){
 (function (global){
 /*global Blob,File*/
 
@@ -7213,7 +7742,7 @@ exports.removeBlobs = function(data, callback) {
 };
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./is-buffer":46,"isarray":32}],45:[function(require,module,exports){
+},{"./is-buffer":47,"isarray":33}],46:[function(require,module,exports){
 
 /**
  * Module dependencies.
@@ -7619,7 +8148,7 @@ function error(data){
   };
 }
 
-},{"./binary":44,"./is-buffer":46,"component-emitter":12,"debug":47,"json3":33}],46:[function(require,module,exports){
+},{"./binary":45,"./is-buffer":47,"component-emitter":13,"debug":48,"json3":34}],47:[function(require,module,exports){
 (function (global){
 
 module.exports = isBuf;
@@ -7636,7 +8165,7 @@ function isBuf(obj) {
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],47:[function(require,module,exports){
+},{}],48:[function(require,module,exports){
 
 /**
  * This is the web browser implementation of `debug()`.
@@ -7806,7 +8335,7 @@ function localstorage(){
   } catch (e) {}
 }
 
-},{"./debug":48}],48:[function(require,module,exports){
+},{"./debug":49}],49:[function(require,module,exports){
 
 /**
  * This is the common logic for both the Node.js and web browser
@@ -8005,7 +8534,7 @@ function coerce(val) {
   return val;
 }
 
-},{"ms":49}],49:[function(require,module,exports){
+},{"ms":50}],50:[function(require,module,exports){
 /**
  * Helpers.
  */
@@ -8132,7 +8661,7 @@ function plural(ms, n, name) {
   return Math.ceil(ms / n) + ' ' + name + 's';
 }
 
-},{}],50:[function(require,module,exports){
+},{}],51:[function(require,module,exports){
 module.exports = toArray
 
 function toArray(list, index) {
@@ -8147,7 +8676,7 @@ function toArray(list, index) {
     return array
 }
 
-},{}],51:[function(require,module,exports){
+},{}],52:[function(require,module,exports){
 (function (global){
 /*! https://mths.be/wtf8 v1.0.0 by @mathias */
 ;(function(root) {
@@ -8385,7 +8914,7 @@ function toArray(list, index) {
 }(this));
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],52:[function(require,module,exports){
+},{}],53:[function(require,module,exports){
 'use strict';
 
 var alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_'.split('')
@@ -8455,14 +8984,14 @@ yeast.encode = encode;
 yeast.decode = decode;
 module.exports = yeast;
 
-},{}],53:[function(require,module,exports){
+},{}],54:[function(require,module,exports){
 var MessageQueue = require('../lib/message-queue');
 var mq = new MessageQueue();
 
 window.mq = mq;
-},{"../lib/message-queue":2}],54:[function(require,module,exports){
+},{"../lib/message-queue":3}],55:[function(require,module,exports){
 
-},{}],55:[function(require,module,exports){
+},{}],56:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -8648,7 +9177,7 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],56:[function(require,module,exports){
+},{}],57:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -8673,14 +9202,14 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],57:[function(require,module,exports){
+},{}],58:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],58:[function(require,module,exports){
+},{}],59:[function(require,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -9270,4 +9799,4 @@ function hasOwnProperty(obj, prop) {
 }
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":57,"_process":55,"inherits":56}]},{},[53]);
+},{"./support/isBuffer":58,"_process":56,"inherits":57}]},{},[54]);
