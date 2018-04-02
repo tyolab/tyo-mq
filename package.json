@@ -1,8 +1,8 @@
 {
   "name": "tyo-mq",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Distributed Message Pub/Sub Service with socket.io",
-  "main": "server.js",
+  "main": "index.js",
   "scripts": {
     "test": "node test.js",
     "start": "node server.js"
