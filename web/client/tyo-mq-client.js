@@ -884,10 +884,10 @@ function Publiser (name, event) {
 
     this.setOnSubscriberLostListener = function (callback) {
         var event = events.toOnDisconnectEvent(this.getId());
-        this.on(event, function() {
+        this.on(event, function(data) {
             console.log("Lost subscriber's connection");
             if (callback)
-                callback();
+                callback(data);
         });
     };
 
@@ -908,7 +908,7 @@ function Publiser (name, event) {
     this.onUnsubscribed = this.setOnUnsubscribedListener;
 
     // Initialisation
-    this.addConnectonListener(function () {
+    this.addConnectionListener(function () {
         var producerName = producer.name || Constants.ANONYMOUS;
         // producer.sendMessage.call(producer, 'PRODUCER', {name: producerName});
         producer.setOnSubscriptionListener();
@@ -930,8 +930,6 @@ module.exports = Publiser;
  * A Socket.io connection 
  * 
  */
-
-'use strict';
 
 const Constants = require('./constants');
 
@@ -974,7 +972,7 @@ function Socket() {
     /**
      * Add on connect listener
      */
-    this.addConnectonListener = function (listener) {
+    this.addConnectionListener = function (listener) {
         this.onConnectListeners = this.onConnectListeners || [];
         this.onConnectListeners.push(listener);
     }
@@ -1152,7 +1150,7 @@ Socket.prototype.sendMessage = function (event, msg, callback) {
 
 Socket.prototype.on = function (event, callback) {
     if (event === 'connect') {
-        this.addConnectonListener(callback);
+        this.addConnectionListener(callback);
         return;
     }
     this.socket.on(event, callback);

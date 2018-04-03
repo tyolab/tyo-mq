@@ -122,10 +122,10 @@ var main = function () {
             if (test === 2) disconnectConsumer();
         });
 
-        producer.onSubscriberLost(function ()  {
+        producer.onSubscriberLost(function (from)  {
             test += 1;
 
-            console.log('Informed that connection with a subscriber was lost');
+            console.log('Informed that connection with a subscriber (' + JSON.stringify(from) + ') was lost');
 
             if (test === 3) exitCheck();
         });
