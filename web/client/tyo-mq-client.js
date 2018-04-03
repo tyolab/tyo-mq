@@ -1,5 +1,4 @@
 (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
-'use strict'
 
 function Constants() {
     this.ANONYMOUS = "ANONYMOUS";
@@ -119,6 +118,7 @@ function MessageQueue (io) {
 
     var getProducerMetaInfo = function (producer) {
         producer = producer || Constants.ANONYMOUS;
+        producers[producer] = producers[producer] || {subscribers: new Set()}
         return producers[producer];
     }
 
@@ -239,23 +239,45 @@ function MessageQueue (io) {
                     subcribeTos.add(producer);
                 }
 
-                // check if producer is registered
-                var producerMeta = getProducerMetaInfo(producer);
-                if (producerMeta) {
+                sendSubscriptionMessageByName(eventStr, producer, consumer, id);
+            }
 
+            // 
+            function sendSubscriptionMessageByName(eventStr, producer, consumer, consumerId) {
+                // check if producer is registered
+                var producerMeta;
+                
+                if (producer !== 'TYO-MQ-ALL') {
+                    producerMeta = getProducerMetaInfo(producer);
+                    sendSubscriptionMessageToProducer(eventStr, producerMeta, consumer, consumerId);
+                }
+                else {
+                    for (var name in producers) {
+                        producerMeta = getProducerMetaInfo(name);
+                        sendSubscriptionMessageToProducer(eventStr, producerMeta, consumer, consumerId);
+                    }
+                }
+            }
+
+            // 
+            function sendSubscriptionMessageToProducer(eventStr, producerMeta, consumer, consumerId) {
+                if (producerMeta.online) {
                     if (!producerMeta.subscribers.has(consumer))
                         producerMeta.subscribers.add(consumer);
 
-                    sendSubscriptionMessageWithConsumerInfo(producerMeta.id, [eventStr], producer, consumer, id);
+                    sendSubscriptionMessageWithConsumerInfo(producerMeta.id, [eventStr], producerMeta.name, consumer, consumerId);
+
+                    var subscription = getEventSubscriber(eventStr, consumer);
 
                     subscription.acked = true;
                     subscription.subscribeToId = producerMeta.id;
+
                     // @todo
                     // send subscription confirmation / rejection here
                     
                 }
             }
-
+            
             // send subscrition message
             function sendSubscriptionMessage(events, producer, consumer, consumerId) {
                 var producerMeta = getProducerMetaInfo(producer);
@@ -397,7 +419,7 @@ function MessageQueue (io) {
                     return;
                 }
 
-                console.error("A consumer (name: " + consumer.name + ", id: " + socket.id + " has joined.");
+                console.error("A consumer (name: " + consumer.name + ", id: " + socket.id + ") has joined.");
 
                 // unlike producer, consumer doesn't need to know the status of the producer
                 var consumerMeta = getConsumerMetaInfo(consumer.name);
@@ -414,7 +436,7 @@ function MessageQueue (io) {
                     return;
                 }
 
-                console.log("A producer (name: " + producer + ", id: " + socket.id + " has joined.");
+                console.log("A producer (name: " + producer.name + ", id: " + socket.id + ") has joined.");
 
                 var producerName = producer.name;
                 // var producerMeta = getProducerMetaInfo(producerName);
@@ -430,8 +452,10 @@ function MessageQueue (io) {
                 //     return;
                 // }
 
-                var producerMeta = producers[producerName] = producers[producerName] || {subscribers: new Set()};
+                var producerMeta = getProducerMetaInfo(producerName); // producers[producerName] = producers[producerName] || {subscribers: new Set()};
                 producerMeta.id = socket.id;
+                producerMeta.name = producerName;
+                producerMeta.online = true;
 
                 // in case the consumer connect before producer is ready
                 var ids = getSubscribersByProducer(producerName);
@@ -477,8 +501,8 @@ function MessageQueue (io) {
              */
 
             socket.on('disconnect', function () {
-                var event = eventManager.toOnDisconnectEvent(socket.id);
-                var message = {event: 'DISCONNECT', who: socket.id};
+                var event;
+                var message = {event: 'DISCONNECT', id: socket.id};
                 
                 var id = socket.id;
 
@@ -496,13 +520,16 @@ function MessageQueue (io) {
                     var producerMeta = producers[name];
                     if (producerMeta.id === id) {
                         isProducer = true;
+                        producerMeta.online = false;
 
                         producerMeta.subscribers.forEach (function (consumerName) {
                             var consumerMeta = getConsumerMetaInfo(consumerName);
 
                             if (consumerMeta) {
                                 // consumerMeta.subcribeTos.delete(name);
-                                sendMessage(consumerMeta.id, event, {producer: name, id: id});
+                                message.producer = name;
+                                event = eventManager.toOnDisconnectEvent(consumerMeta.id);
+                                sendMessage(consumerMeta.id, event, message);
                             }
                         });
 
@@ -530,7 +557,9 @@ function MessageQueue (io) {
                                 var producerMeta = getProducerMetaInfo(producerName);
 
                                 if (producerMeta) {
-                                    sendMessage(producerMeta.id, event, {consumer: consumerName, id: id});
+                                    message.consumer = consumerName;
+                                    event = eventManager.toOnDisconnectEvent(producerMeta.id);
+                                    sendMessage(producerMeta.id, event, message);
                                     // producerMeta.subscribers.delete(consumerName);
                                 }
                             }); 
@@ -760,6 +789,15 @@ function MessageQueue (io) {
 
 };
 
+MessageQueue.prototype.createServer = function () {
+    return new Server();
+};
+
+MessageQueue.Producer = Producer;
+MessageQueue.Consumer = Subscriber;
+MessageQueue.Publisher = Producer;
+MessageQueue.Subscriber = Subscriber;
+
 module.exports = MessageQueue;
 },{"./constants":1,"./events":2,"./publisher":4,"./socket":5,"./subscriber":6}],4:[function(require,module,exports){
 /**
@@ -836,7 +874,7 @@ function Publiser (name, event) {
                 producer.onSubscriptionListener.call(producer, data);
 
             if (callback)
-                callback(from);
+                callback(data);
         });
     }
 
@@ -844,8 +882,8 @@ function Publiser (name, event) {
      * On Lost connections with subscriber(s)
      */
 
-    this.setOnSubscriberLostListener = function (id, callback) {
-        var event = events.toOnDisconnectEvent(id);
+    this.setOnSubscriberLostListener = function (callback) {
+        var event = events.toOnDisconnectEvent(this.getId());
         this.on(event, function() {
             console.log("Lost subscriber's connection");
             if (callback)
@@ -859,8 +897,8 @@ function Publiser (name, event) {
      * On Unsubsribe
      */
 
-    this.setOnUnsubscribedListener = function (id, callback) {
-        var event = events.toOnUnsubscribeEvent(id);
+    this.setOnUnsubscribedListener = function (callback) {
+        var event = events.toOnUnsubscribeEvent(this.getId());
         this.subscribe(event, function() {
             if (callback)
                 callback();
@@ -1050,8 +1088,18 @@ Socket.prototype.connect = function (callback, port, host, protocol, args) {
 
     /**
      */
-    this.connectString = this.protocol + "://" + this.host + ':' + this.port;
+    var connectString = this.protocol + "://" + this.host + ':' + this.port;
+    this.connectWith(callback, connectString, args)
+}
+
+/**
+ * Connect to ther server with connection string
+ */
     
+Socket.prototype.connectWith = function (callback, connectStr, args) {
+    var self = this;
+    this.connectString = connectStr;
+
     if (self.logger)
         self.logger.log("connecting to " + this.connectString + "...");
     

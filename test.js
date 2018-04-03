@@ -122,7 +122,7 @@ var main = function () {
             if (test === 2) disconnectConsumer();
         });
 
-        producer.onSubscriberLost(producer.getId(), function ()  {
+        producer.onSubscriberLost(function ()  {
             test += 1;
 
             console.log('Informed that connection with a subscriber was lost');
