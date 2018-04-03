@@ -8,6 +8,7 @@ var forkServer = false;
 var noexit = false;
 var port;
 var host;
+var protocol;
 
 function usage() {
     console.log('node test.js [--noexit] [-h host] [-p port]');
