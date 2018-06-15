@@ -1,6 +1,9 @@
 # tyo-mq
+[![NPM module](https://badge.fury.io/js/tyo-mq.png)](https://badge.fury.io/js/tyo-mq)
 
 TYO-MQ is a distributed messaging (pub/sub) service with socket.io. 
+
+[![NPM](https://nodei.co/npm/tyo-mq.png?stars&downloads)](https://nodei.co/npm/tyo-mq/)
 
 At the moment the message queuing is not implemented yet, which means all messages are sent instantly without confirmation of message delivery or recieving. So message subcriber(s) will need to be online in order to recieve the message.
 
