@@ -101,7 +101,7 @@ var main = function () {
 
         consumer.subscribe(producer.name, 'tyo-mq-mt-default', (data, from) => {
             if (from)
-                console.log("Received message from")
+                console.log("Received message from" + from);
 
             test += 1;
             if (data === 'test-a') 
