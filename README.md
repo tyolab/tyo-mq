@@ -13,7 +13,7 @@ At the moment the message queuing is not implemented yet, which means all messag
 ## Creating a messaging server
 
 ```javascript
-var MessageServer = require("tyo-mq").server;
+var MessageServer = require("tyo-mq").Server;
 
 var mq = new MessageServer();
 mq.start();
@@ -22,8 +22,10 @@ mq.start();
 ## Creating a message producer
 
 ```javascript
-var MessageQueue = require('tyo-mq'),
+var MessageQueue = require('tyo-mq').MessageQueue,
     producer;
+
+var mq = new MessageQueue();  
 
 mq.createProducer('testevent')
 .then(function (p) {
@@ -35,7 +37,7 @@ mq.createProducer('testevent')
     // produce a different kind of event
     producer.produce('event2', {data: 'test text from event2'})
 });
- 
+``` 
 
 ## Creating a message subscriber
 
@@ -62,6 +64,18 @@ mq.createConsumer()
         console.log(data);
     });
 });
+```
+
+## Demo
+
+### Start the TYO-MQ server
+```javascript
+node -e 'require("tyo-mq/server")'
+```
+
+### Test Script
+```javascript
+node -e 'require("tyo-mq/test")'
 ```
 
 ## Browserify
