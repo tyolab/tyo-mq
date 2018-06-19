@@ -13,7 +13,7 @@ At the moment the message queuing is not implemented yet, which means all messag
 ## Creating a messaging server
 
 ```javascript
-var MessageServer = require("tyo-mq");
+var MessageServer = require("tyo-mq").server;
 
 var mq = new MessageServer();
 mq.start();
@@ -35,13 +35,15 @@ mq.createProducer('testevent')
     // produce a different kind of event
     producer.produce('event2', {data: 'test text from event2'})
 });
-```
+ 
 
 ## Creating a message subscriber
 
 ```javascript
-var MessageQueue = require('tyo-mq'),
+var MessageQueue = require('tyo-mq').MessageQueue,
     consumer;
+
+var mq = new MessageQueue();    
 
 mq.createConsumer()
 .then(function (c) {
