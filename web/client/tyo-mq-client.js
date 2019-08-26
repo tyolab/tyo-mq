@@ -859,7 +859,7 @@ function SubscriberInfo (name) {
     this.name = name;
 }
 
-function Publiser (name, event) {
+function Publisher (name, event) {
     // call prarent constructor
     Subscriber.call(this, name);
 
@@ -965,9 +965,9 @@ function Publiser (name, event) {
  * Inherits from Socket
  */
 
-util.inherits(Publiser, Subscriber);
+util.inherits(Publisher, Subscriber);
 
-module.exports = Publiser;
+module.exports = Publisher;
 },{"./constants":1,"./events":2,"./subscriber":6,"util":59}],5:[function(require,module,exports){
 (function (process){
 /**
