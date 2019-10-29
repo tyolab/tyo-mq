@@ -69,12 +69,16 @@ mq.createConsumer()
 ## Demo
 
 ### Start the TYO-MQ server
+
 ```javascript
+# Needs to set up the library (module) path
+export NODE_PATH=`npm config get prefix`/lib/node_modules/
 node -e 'require("tyo-mq/server")'
 ```
 
 ### Test Script
 ```javascript
+export NODE_PATH=`npm config get prefix`/lib/node_modules/
 node -e 'require("tyo-mq/test")'
 ```
 
