@@ -1,7 +1,7 @@
 var childProcess = require('child_process');
 
-var MessageQueue = require('./lib/message-queue');
-var mq = new MessageQueue();
+var Factory = require('./lib/factory');
+var mq = new Factory();
 
 var forkServer = false;
 
@@ -83,7 +83,7 @@ var main = function () {
 
         // Reset the onConnect Listener
         producer.on('connect', function ()  {
-            console.log('producer\'s own connect listenr');
+            console.log('producer\'s own connect listener');
         });
 
         return mq.createConsumer("TYO Lab Tester");
@@ -96,12 +96,12 @@ var main = function () {
         // this listener will be only effective after the current connection is lost
         // and get reconnected again
         consumer.on('connect', function ()  {
-            console.log('consumer\'s own connect listenr');
+            console.log('consumer\'s own connect listener');
         });
 
         consumer.subscribe(producer.name, 'tyo-mq-mt-default', (data, from) => {
             if (from)
-                console.log("Received message from" + from);
+                console.log("Received message from " + from);
 
             test += 1;
             if (data === 'test-a') 

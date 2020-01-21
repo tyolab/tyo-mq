@@ -1,4 +1,7 @@
 module.exports = { 
-    MessageQueue: require('./lib/message-queue'),
-    Server: require('./lib/server')
+    Factory: require('./lib/factory'),
+    Server: require('./lib/server'),
+
+    // @depreciated
+    MessageQueue: Factory,
 };

@@ -22,10 +22,10 @@ mq.start();
 ## Creating a message producer
 
 ```javascript
-var MessageQueue = require('tyo-mq').MessageQueue,
+var Factory = require('tyo-mq').Factory,
     producer;
 
-var mq = new MessageQueue();  
+var mq = new Factory();  
 
 mq.createProducer('testevent')
 .then(function (p) {
@@ -42,10 +42,10 @@ mq.createProducer('testevent')
 ## Creating a message subscriber
 
 ```javascript
-var MessageQueue = require('tyo-mq').MessageQueue,
+var Factory = require('tyo-mq').Factory,
     consumer;
 
-var mq = new MessageQueue();    
+var mq = new Factory();    
 
 mq.createConsumer()
 .then(function (c) {
