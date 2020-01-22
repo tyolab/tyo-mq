@@ -87,7 +87,7 @@ var Socket          = require('./socket'),
     Subscriber      = require('./subscriber'),
     Producer        = require('./publisher');
 
-function MessageQueue () {
+function Factory () {
     /**
      * for log
      */
@@ -291,12 +291,12 @@ function MessageQueue () {
     };
 }
 
-MessageQueue.Producer = Producer;
-MessageQueue.Consumer = Subscriber;
-MessageQueue.Publisher = Producer;
-MessageQueue.Subscriber = Subscriber;
+Factory.Producer = Producer;
+Factory.Consumer = Subscriber;
+Factory.Publisher = Producer;
+Factory.Subscriber = Subscriber;
 
-module.exports = MessageQueue;
+module.exports = Factory;
 },{"./publisher":4,"./socket":5,"./subscriber":6}],4:[function(require,module,exports){
 /**
  * @file producer.js
@@ -333,9 +333,12 @@ function Publisher (name, event) {
 
     /**
      * Event produce function
+     * @param event
+     * @param data
+     * @param validFor, the valid time (lifespan of the message)
      */
 
-    this.produce = function (event, data) {
+    this.produce = function (event, data, validFor, to) {
         var self = this;
 
         if (!data) {
@@ -351,7 +354,7 @@ function Publisher (name, event) {
          * 1) make an encryption option
          * 2) Encrypt the message when a cryto algorithm is negotiated 
          */
-        var message =  {event:event, message:data, from:self.name};
+        var message =  {event:event, message:data, from:self.name, lifespan: validFor || -1};
 
         // Maybe we could delay a bit
         self.sendMessage.call(self, 'PRODUCE', message);
@@ -504,7 +507,15 @@ function Socket() {
     this.sendIdentificationInfo = function () {
         // do nothing yet
     }
+    */
+    /**
+     * Check if it is connected
+     */
+    this.isConnected = function () {
+        return this.connected;
+    }
 
+    /**
      * On Error 
      */
     this.onError = function (message) {
@@ -630,10 +641,10 @@ Socket.prototype.connectWith = function (callback, connectStr, args) {
 
 Socket.prototype.sendMessage = function (event, msg, callback) {
     if (!this.socket)
-        throw new Error("Socket isn't ininitalized yet");
+        throw new Error("Socket isn't initialized yet");
 
     if (!this.socket.connected) {
-        var futureFunc = this.socket.emit.bind(self, event, msg);
+        var futureFunc = this.socket.emit.bind(this, event, msg);
         if (this.autoreconnect)
             this.connect(function (){
                 futureFunc.call();
@@ -7751,11 +7762,11 @@ yeast.decode = decode;
 module.exports = yeast;
 
 },{}],49:[function(require,module,exports){
-var MessageQueue = require('../lib/message-queue');
-var mq = new MessageQueue();
+var Factory = require('../lib/factory');
+var mq = {factory: new Factory()};
 
 window.mq = mq;
-},{"../lib/message-queue":3}],50:[function(require,module,exports){
+},{"../lib/factory":3}],50:[function(require,module,exports){
 'use strict'
 
 exports.byteLength = byteLength

@@ -1,4 +1,4 @@
-var MessageQueue = require('../lib/message-queue');
-var mq = new MessageQueue();
+var Factory = require('../lib/factory');
+var mq = {factory: new Factory()};
 
 window.mq = mq;
