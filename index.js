@@ -1,7 +1,9 @@
+const Factory = require('./lib/factory');
+
 module.exports = { 
-    Factory: require('./lib/factory'),
+    Factory: Factory,
     Server: require('./lib/server'),
 
     // @depreciated
-    MessageQueue: Factory,
+    MessageQueue: Factory
 };
