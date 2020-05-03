@@ -1,11 +1,12 @@
 {
   "name": "tyo-mq",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "description": "Distributed Message Pub/Sub Service with socket.io",
   "main": "index.js",
   "scripts": {
     "test": "node test.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "browserify": "browserify web/web.js -o web/client/tyo-mq-client.js"
   },
   "author": "TYO Lab",
   "license": "MIT",
@@ -24,6 +25,7 @@
   "files": [
     "LICENSE",
     "lib/",
+    "web/",
     "README.md",
     "index.js",
     "server.js",
