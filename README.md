@@ -86,7 +86,7 @@ node -e 'require("tyo-mq/test")'
 This package supports being browserified.
 In order to browserify, please install two more extra packages:
 ```
-nmp install utf-8-validate bufferutil
+npm install utf-8-validate bufferutil
 ```
 
 Afterward,
