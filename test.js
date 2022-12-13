@@ -11,7 +11,7 @@ var host;
 var protocol;
 
 function usage() {
-    console.log('node test.js [--noexit] [-h host] [-p port]');
+    console.log('node test.js [--noexit] [-h host] [-p port] [-s schema]');
     exit();
 }
 
@@ -46,6 +46,9 @@ if (process.argv.length > 2) {
                 case 'h':
                     host = process.argv[++param];
 	                break;
+                case 's':
+                    protocol = process.argv[++param];
+                    break;                    
                 case '-': {
                     // long option
                     var cc = paramStr.substr(2);
@@ -53,8 +56,8 @@ if (process.argv.length > 2) {
                         noexit = true;
                     else if (cc == 'port')
                         port = process.argv[++param];
-                    else if (cc == 'host')
-                        host = process.argv[++param];
+                    else if (cc == 'protocol')
+                        protocol = process.argv[++param];
                     break;
                 }
 	        }
@@ -67,6 +70,7 @@ if (process.argv.length > 2) {
 
 mq.host = host;
 mq.port = port;
+mq.protocol = protocol;
 
 var main = function () {
     var producer;
