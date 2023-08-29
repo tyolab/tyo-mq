@@ -614,10 +614,11 @@ Socket.prototype.connect = function (callback, port, host, protocol, args) {
     
 Socket.prototype.connectWith = function (callback, connectStr, args) {
     var self = this;
+    this.callback = callback;
     this.connectString = connectStr;
 
     if (self.logger)
-        self.logger.log("connecting to " + this.connectString + "...");
+        self.logger.log(this.name + " connecting to " + this.connectString + "...");
     
     this.socket = this.io.connect(this.connectString, args || { transports: ["websocket"] });
 
@@ -625,7 +626,7 @@ Socket.prototype.connectWith = function (callback, connectStr, args) {
         self.connected = true;
 
         if (self.logger)
-            self.logger.log("connected to message queue server");
+            self.logger.log(self.name + " connected to message queue server");
         
         self.onConnect();
 
@@ -635,13 +636,17 @@ Socket.prototype.connectWith = function (callback, connectStr, args) {
             });
         }
 
-        if (callback) {
-            callback();
-            callback = null;
+        if (self.callback) {
+            self.callback();
+            // callback = null;
         }
     });
 
-    this.socket.on('disconnect', this.onDisconnectListener);
+    // let self has a chance to register a custom onDisconnectListener
+    this.socket.on('disconnect', (() => {
+        if (self.onDisconnectListener && typeof self.onDisconnectListener === 'function')
+            self.onDisconnectListener();
+    }));
     
 };
 
@@ -5321,10 +5326,20 @@ exports.hasBinary = hasBinary;
 
 },{}],39:[function(require,module,exports){
 var Factory = require('../lib/factory');
-var mq = {factory: new Factory()};
+var Producer = require('../lib/publisher');
+var Consumer = require('../lib/subscriber');
+
+var mq = {
+    Factory: Factory,
+    Producer: Producer,
+    Consumer: Consumer,
+    Publisher: Producer,
+    Subscriber: Consumer,
+    factory: new Factory()
+};
 
 window.mq = mq;
-},{"../lib/factory":3}],40:[function(require,module,exports){
+},{"../lib/factory":3,"../lib/publisher":4,"../lib/subscriber":6}],40:[function(require,module,exports){
 
 /**
  * Array#filter.
