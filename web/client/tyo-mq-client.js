@@ -364,7 +364,7 @@ function Publisher (name, event) {
         var message =  {event:event, message:data, from:self.name, lifespan: validFor || -1};
 
         // Maybe we could delay a bit
-        self.sendMessage.call(self, 'PRODUCE', message);
+        self.sendMessage.call(self, 'PRODUCE', message, self.name);
     };
 
     /**
@@ -423,6 +423,27 @@ function Publisher (name, event) {
         // producer.sendMessage.call(producer, 'PRODUCER', {name: producerName});
         producer.setOnSubscriptionListener();
     });
+
+    this.setOnSubscriberLostListener = function (callback) {
+        var event = events.toOnDisconnectEvent(this.getId());
+        this.on(event, function(data) {
+            producer.logger.log("Lost subscriber's connection");
+            if (callback)
+                callback(data);
+        });
+    };
+    this.setOnSubscriberLost = this.setOnSubscriberLostListener;
+
+    this.setOnSubscriberOnlineListener = function (callback) {
+        var event = events.toOnConnectEvent(this.getId());
+        this.on(event, function(data) {
+            producer.logger.log("Subscriber is online");
+            if (callback)
+                callback(data);
+        });
+    }
+
+    this.whenSubscriberOnline = this.setOnSubscriberOnline = this.setOnSubscriberOnlineListener;
 }
 
 /**
@@ -598,29 +619,28 @@ Socket.prototype.connect = function (callback, port, host, protocol, args) {
         return;
     }
 
-    this.host = host || process.env.TYO_MQ_HOST || 'localhost';
-    this.port = port || process.env.TYO_MQ_PORT || '17352';
-    this.protocol = protocol || 'http';
+    this.host = this.host || host || process.env.TYO_MQ_HOST || 'localhost';
+    this.port = this.port || port || process.env.TYO_MQ_PORT || '17352';
+    this.protocol = this.protocol || protocol || 'http';
 
     /**
      */
-    var connectString = this.protocol + "://" + this.host + ':' + this.port;
-    this.connectWith(callback, connectString, args);
+    this.connectString = this.connectString || (this.protocol + "://" + this.host + ':' + this.port);
+    this.connectWith(callback, this.connectString, args);
 };
 
 /**
  * Connect to ther server with connection string
  */
     
-Socket.prototype.connectWith = function (callback, connectStr, args) {
+Socket.prototype.connectWith = function (callback, connectString, args) {
     var self = this;
     this.callback = callback;
-    this.connectString = connectStr;
 
     if (self.logger)
-        self.logger.log(this.name + " connecting to " + this.connectString + "...");
+        self.logger.log(this.name + " connecting to " + connectString + "...");
     
-    this.socket = this.io.connect(this.connectString, args || { transports: ["websocket"] });
+    this.socket = this.io.connect(connectString, args || { transports: ["websocket"] });
 
     this.socket.on('connect', function(socket) {
         self.connected = true;
@@ -654,7 +674,7 @@ Socket.prototype.connectWith = function (callback, connectStr, args) {
  * Send Event Message
  */
 
-Socket.prototype.sendMessage = function (event, msg, callback) {
+Socket.prototype.sendMessage = function (event, msg, from, callback) {
     if (!this.socket)
         throw new Error("Socket isn't initialized yet");
 
@@ -670,7 +690,7 @@ Socket.prototype.sendMessage = function (event, msg, callback) {
     }
     
     this.socket.emit(event, msg);
-    if (callback) {
+    if (callback && typeof callback === 'function') {
         callback();
     }
 };
@@ -835,6 +855,24 @@ function Subscriber (name) {
     this.subscribeAll = function (context, event, onConsumeCallback) {
         this.subscribe(context, Constants.ALL_PUBLISHERS, event, onConsumeCallback);
     }
+
+    this.unsubscribe = function (event) {
+        var eventStr = events.toEventString(event);
+        // this.sendMessage('UNSUBSCRIBE', {event:eventStr});
+        this.socket.off(eventStr);
+    }
+
+    this.unsubscribeAll = function () {
+        this.socket.removeAllListeners();
+    }
+
+    this.setOnProducerOnlineListener = function (producer, callback) {
+        var eventStr = events.toEventString(producer + "-ONLINE");
+        this.on(eventStr, callback);
+    }
+
+    this.whenProducerOnline = this.setOnProducerOnline = this.setOnProducerOnlineListener;
+
 }
 
 /**
