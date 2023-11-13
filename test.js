@@ -136,6 +136,7 @@ var main = function () {
 
         // wait for 3 seconds before we produce message
         setTimeout(function () {
+            console.log("Sending messages...");
             producer.produce('tyo-mq-mt-default', 'test-a');
             producer.produce('tyo-mq-mt-test2', 'test-b');
         }, 3000);

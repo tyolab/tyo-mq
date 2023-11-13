@@ -8,12 +8,12 @@ var server = new Server({
         threshold: 2048, // defaults to 1024
 
         zlibDeflateOptions: {
-        chunkSize: 8 * 1024, // defaults to 16 * 1024
+            chunkSize: 8 * 1024, // defaults to 16 * 1024
         },
 
         zlibInflateOptions: {
-        windowBits: 14, // defaults to 15
-        memLevel: 7, // defaults to 8
+            windowBits: 14, // defaults to 15
+            memLevel: 7, // defaults to 8
         },
 
         clientNoContextTakeover: true, // defaults to negotiated value.
