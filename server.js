@@ -4,6 +4,11 @@ var server = new Server({
     pingInterval: 5000,
     pingTimeout: 10000,
     allowEIO3: true,
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"],
+        credentials: true
+    },
     perMessageDeflate: {
         threshold: 2048, // defaults to 1024
 
