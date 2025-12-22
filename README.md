@@ -76,6 +76,50 @@ export NODE_PATH=`npm config get prefix`/lib/node_modules/
 node -e 'require("tyo-mq/server")'
 ```
 
+### Customize Server Configuration
+
+You can customize the server configuration including CORS settings by creating your own server file:
+
+```javascript
+var Server = require('tyo-mq').Server;
+
+var server = new Server({
+    serveClient: false,
+    pingInterval: 5000,
+    pingTimeout: 10000,
+    allowEIO3: true,
+    // CORS configuration
+    cors: {
+        origin: "*",  // Allow all origins, or specify ["http://localhost:3000", "https://yourdomain.com"]
+        methods: ["GET", "POST"],
+        credentials: true
+    },
+    // WebSocket compression settings
+    perMessageDeflate: {
+        threshold: 2048,
+        zlibDeflateOptions: {
+            chunkSize: 8 * 1024,
+        },
+        zlibInflateOptions: {
+            windowBits: 14,
+            memLevel: 7,
+        },
+        clientNoContextTakeover: true,
+        serverNoContextTakeover: true,
+        serverMaxWindowBits: 10,
+        concurrencyLimit: 20,
+    },
+});
+
+server.start(8080); // Specify custom port
+```
+
+**CORS Options:**
+- `origin: "*"` - Allow all origins (development/testing)
+- `origin: ["http://localhost:3000"]` - Allow specific origins (production)
+- `methods` - Allowed HTTP methods
+- `credentials: true` - Allow credentials in requests
+
 ### Test Script
 ```javascript
 export NODE_PATH=`npm config get prefix`/lib/node_modules/
