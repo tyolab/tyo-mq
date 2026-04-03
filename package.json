@@ -4,7 +4,8 @@
   "description": "Distributed Message Pub/Sub Service with socket.io",
   "main": "index.js",
   "scripts": {
-    "test": "node test.js",
+    "test": "node tests/server.test.js",
+    "test:legacy": "node test.js",
     "start": "node server.js",
     "browserify": "browserify web/web.js -o web/client/tyo-mq-client.js"
   },
