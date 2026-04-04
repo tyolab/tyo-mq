@@ -18,7 +18,8 @@ const TEST_PORT = 17353;
 // ─── server bootstrap ────────────────────────────────────────────────────────
 
 const server = new TyoMQServer({ port: TEST_PORT });
-server.logger = { log: () => {}, error: () => {}, debug: () => {}, warn: () => {} }; // silence during tests
+const noop = () => {};
+server.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop }; // silence during tests
 server.start(TEST_PORT);
 
 function mq() {
