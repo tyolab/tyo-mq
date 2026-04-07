@@ -204,6 +204,71 @@ test('consumer receives messages after reconnect and re-registration', async () 
     producer.disconnect();
 });
 
+// ─── large message tests ─────────────────────────────────────────────────────
+
+/**
+ * Large message just over the 256 KB chunk boundary (~300 KB serialised).
+ * Forces the publisher to split into 2 PRODUCE_CHUNKs and the server to
+ * reassemble before sending one CONSUME_CHUNK sequence to the subscriber.
+ */
+test('large message (~300 KB) arrives intact', async () => {
+    const client   = mq();
+    const producer = await client.createProducer('test-producer-large-1');
+    const consumer = await client.createConsumer('test-consumer-large-1');
+
+    // Build a payload whose JSON length exceeds the 256 KB chunk size
+    const size    = 300 * 1024;
+    const payload = 'x'.repeat(size);
+
+    const received = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('timeout waiting for large message')), 8000);
+        consumer.subscribe(producer.name, 'large-event-1', (data) => {
+            clearTimeout(timer);
+            resolve(data);
+        });
+        setTimeout(() => producer.produce('large-event-1', payload), 500);
+    });
+
+    assert.strictEqual(received.length, size,
+        `expected payload length ${size}, got ${received.length}`);
+    assert.strictEqual(received[0],        'x', 'first char mismatch');
+    assert.strictEqual(received[size - 1], 'x', 'last char mismatch');
+
+    consumer.disconnect();
+    producer.disconnect();
+});
+
+/**
+ * Very large message (~2 MB) that requires many chunks in both directions.
+ * Verifies that all chunks are reassembled in order and the payload is intact.
+ */
+test('large message (~2 MB) arrives intact', async () => {
+    const client   = mq();
+    const producer = await client.createProducer('test-producer-large-2');
+    const consumer = await client.createConsumer('test-consumer-large-2');
+
+    const size    = 2 * 1024 * 1024;
+    const payload = 'y'.repeat(size);
+
+    const received = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('timeout waiting for 2 MB message')), 15000);
+        consumer.subscribe(producer.name, 'large-event-2', (data) => {
+            clearTimeout(timer);
+            resolve(data);
+        });
+        setTimeout(() => producer.produce('large-event-2', payload), 500);
+    });
+
+    assert.strictEqual(received.length, size,
+        `expected payload length ${size}, got ${received.length}`);
+    assert.strictEqual(received[0],              'y', 'first char mismatch');
+    assert.strictEqual(received[size - 1],       'y', 'last char mismatch');
+    assert.strictEqual(received[size >> 1],      'y', 'mid char mismatch');
+
+    consumer.disconnect();
+    producer.disconnect();
+});
+
 // ─── run ─────────────────────────────────────────────────────────────────────
 
 run();
