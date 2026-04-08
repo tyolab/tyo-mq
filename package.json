@@ -1,6 +1,6 @@
 {
   "name": "tyo-mq",
-  "version": "0.3.13",
+  "version": "0.3.14",
   "description": "Distributed Message Pub/Sub Service with socket.io",
   "main": "index.js",
   "scripts": {
@@ -43,5 +43,8 @@
     "Subscriber",
     "Message Queue",
     "socket.io"
-  ]
+  ],
+  "devDependencies": {
+    "browserify": "^17.0.1"
+  }
 }
