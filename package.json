@@ -1,6 +1,6 @@
 {
   "name": "tyo-mq",
-  "version": "0.3.15",
+  "version": "0.3.17",
   "description": "Distributed Message Pub/Sub Service with socket.io",
   "main": "index.js",
   "scripts": {
@@ -15,6 +15,7 @@
     "bufferutil": "^4.0.7",
     "http": "0.0.0",
     "http-proxy": "^1.18.0",
+    "node-programmer": "^0.0.29",
     "socket.io": "^4.5.2",
     "socket.io-client": "^4.5.2",
     "utf-8-validate": "^5.0.10"
