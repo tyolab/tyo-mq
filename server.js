@@ -1,4 +1,12 @@
+var Params = require('node-programmer/params');
 var Server = require('./lib/server');
+
+var params = new Params({
+    "port": null,
+});
+
+var opts = params.getOpts();
+
 var server = new Server({
     serveClient: false,
     pingInterval: 5000,
@@ -29,6 +37,6 @@ var server = new Server({
     },
 });
 
-server.start();
+server.start(opts.port ? parseInt(opts.port) : undefined);
 
 module.exports = server;
