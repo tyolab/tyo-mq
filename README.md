@@ -114,6 +114,38 @@ var server = new Server({
 server.start(8080); // Specify custom port
 ```
 
+### Authentication and Realms
+
+Authentication is disabled by default for backwards compatibility. When enabled,
+clients must send `AUTHENTICATION` before registering as a producer or consumer.
+The built-in clients can do this automatically with a configured token:
+
+```javascript
+var Server = require('tyo-mq').Server;
+var Factory = require('tyo-mq').Factory;
+
+var server = new Server({
+    auth: {
+        enabled: true,
+        tokens: [
+            { token: 'secret-acme-prod', realm: 'acme', role: 'producer' },
+            { token: 'secret-acme-cons', realm: 'acme', role: 'consumer' }
+        ]
+    }
+});
+server.start();
+
+var producerMq = new Factory({ auth: { token: 'secret-acme-prod' } });
+var consumerMq = new Factory({ auth: { token: 'secret-acme-cons' } });
+```
+
+Supported roles are `producer`, `consumer`, `both`, and `admin`. Producers,
+consumers, and subscriptions are scoped to the authenticated `realm`, so the
+same producer or consumer names can exist independently in different realms.
+In addition to configured opaque tokens, the server can validate HS256 JWTs
+with `auth.jwt_secret` or delegate validation to an HTTP endpoint with
+`auth.auth_url`.
+
 **CORS Options:**
 - `origin: "*"` - Allow all origins (development/testing)
 - `origin: ["http://localhost:3000"]` - Allow specific origins (production)
