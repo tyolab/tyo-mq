@@ -7,7 +7,11 @@
 'use strict';
 
 const assert = require('assert');
+const childProcess = require('child_process');
 const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const Factory = require('../lib/factory');
 const { test, run } = require('./runner');
 const { startServer, delay, waitFor } = require('./helpers');
@@ -24,6 +28,20 @@ function createJwt(payload, secret) {
     const body = base64Url(JSON.stringify(payload));
     const signature = base64Url(crypto.createHmac('sha256', secret).update(`${header}.${body}`).digest());
     return `${header}.${body}.${signature}`;
+}
+
+function execFile(command, args, options) {
+    return new Promise((resolve, reject) => {
+        childProcess.execFile(command, args, options, (err, stdout, stderr) => {
+            if (err) {
+                err.stdout = stdout;
+                err.stderr = stderr;
+                reject(err);
+                return;
+            }
+            resolve({stdout, stderr});
+        });
+    });
 }
 
 test('auth rejects unauthenticated protocol events', async () => {
@@ -231,6 +249,44 @@ test('auth accepts HS256 JWT tokens with realm and role claims', async () => {
     } finally {
         if (producer) producer.disconnect();
         await authServer.close();
+    }
+});
+
+test('server generates missing admin token in .env and helper authenticates with it', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tyo-mq-auth-'));
+    const envFile = path.join(tmpDir, '.env');
+    const originalAdminToken = process.env.TYO_MQ_ADMIN_TOKEN;
+    delete process.env.TYO_MQ_ADMIN_TOKEN;
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            env_file: envFile
+        }
+    });
+
+    try {
+        const rawEnv = fs.readFileSync(envFile, 'utf8');
+        assert.ok(/TYO_MQ_ADMIN_TOKEN=/.test(rawEnv), 'server should create TYO_MQ_ADMIN_TOKEN in .env');
+
+        const result = await execFile(process.execPath, [
+            'scripts/admin-auth.js',
+            '-p', String(authServer.port),
+            '--env-file', envFile
+        ], {
+            cwd: path.resolve(__dirname, '..'),
+            timeout: 7000
+        });
+
+        assert.ok(result.stdout.includes('AUTH_OK'), result.stdout);
+        assert.ok(result.stdout.includes('"realm":"*"'), result.stdout);
+        assert.ok(result.stdout.includes('"role":"admin"'), result.stdout);
+    } finally {
+        await authServer.close();
+        if (originalAdminToken === undefined)
+            delete process.env.TYO_MQ_ADMIN_TOKEN;
+        else
+            process.env.TYO_MQ_ADMIN_TOKEN = originalAdminToken;
+        fs.rmSync(tmpDir, {recursive: true, force: true});
     }
 });
 
