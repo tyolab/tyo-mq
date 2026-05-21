@@ -1,0 +1,28 @@
+{
+  "auth": {
+    "enabled": true,
+
+    "realms": {
+      "acme": {
+        "required": true
+      },
+      "beta": {
+        "required": true
+      },
+      "public": {
+        "required": false
+      }
+    },
+
+    "tokens": [
+      { "token": "change-me-acme-prod", "realm": "acme", "role": "producer" },
+      { "token": "change-me-acme-cons", "realm": "acme", "role": "consumer" },
+      { "token": "change-me-beta-both", "realm": "beta", "role": "both"     },
+      { "token": "change-me-admin",     "realm": "*",    "role": "admin"    }
+    ],
+
+    "jwt_secret": "",
+
+    "auth_url": ""
+  }
+}
