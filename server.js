@@ -1,5 +1,8 @@
 var Params = require('node-programmer/params');
 var Server = require('./lib/server');
+var env = require('./lib/env');
+
+env.loadEnvFile(process.env.TYO_MQ_ENV_FILE || '.env');
 
 var params = new Params({
     "port": null,
@@ -34,6 +37,11 @@ var server = new Server({
         serverMaxWindowBits: 10, // defaults to negotiated value.
 
         concurrencyLimit: 20, // defaults to 10
+    },
+    auth: {
+        enabled: process.env.TYO_MQ_AUTH_ENABLED === 'true',
+        env_file: process.env.TYO_MQ_ENV_FILE || '.env',
+        auto_admin_token: process.env.TYO_MQ_AUTO_ADMIN_TOKEN !== 'false'
     },
 });
 
