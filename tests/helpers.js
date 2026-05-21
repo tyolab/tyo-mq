@@ -12,7 +12,7 @@ const Factory     = require('../lib/factory');
  * Start a tyo-mq server on a random available port.
  * Returns { port, close } where close() shuts the server down.
  */
-function startServer() {
+function startServer(options) {
     return new Promise((resolve, reject) => {
         const httpServer = http.createServer();
         const io = new Server(httpServer, {
@@ -20,7 +20,9 @@ function startServer() {
             pingTimeout:  10000,
         });
 
-        const mqServer = new TyoMQServer();
+        const mqServer = new TyoMQServer(options || {});
+        const noop = () => {};
+        mqServer.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop };
         mqServer.create(io);
 
         httpServer.listen(0, '127.0.0.1', () => {
