@@ -146,6 +146,25 @@ In addition to configured opaque tokens, the server can validate HS256 JWTs
 with `auth.jwt_secret` or delegate validation to an HTTP endpoint with
 `auth.auth_url`.
 
+When auth is enabled and no `realm: "*", role: "admin"` token is configured,
+the server creates one automatically and appends it to `.env` as
+`TYO_MQ_ADMIN_TOKEN`. The default `server.js` loads `.env`, so you can enable
+auth and let the first server start create the admin token:
+
+```bash
+printf 'TYO_MQ_AUTH_ENABLED=true\n' > .env
+npm start
+```
+
+In another shell, verify the generated token can authenticate:
+
+```bash
+npm run auth:admin
+```
+
+The helper reads `TYO_MQ_ADMIN_TOKEN` from `.env` and sends `AUTHENTICATION` to
+the running server.
+
 **CORS Options:**
 - `origin: "*"` - Allow all origins (development/testing)
 - `origin: ["http://localhost:3000"]` - Allow specific origins (production)
