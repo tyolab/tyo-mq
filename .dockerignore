@@ -1,0 +1,10 @@
+node_modules
+.git
+.gitignore
+.vscode
+.claude
+tests
+*.md
+package-lock.json.orig
+server.js.orig
+subscriber.js.orig
