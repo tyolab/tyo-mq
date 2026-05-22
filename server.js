@@ -45,6 +45,9 @@ var server = new Server({
     },
 });
 
+if (process.env.TYO_MQ_SETTINGS_FILE)
+    server.loadSettings(process.env.TYO_MQ_SETTINGS_FILE);
+
 server.start(opts.port ? parseInt(opts.port) : undefined);
 
 module.exports = server;
