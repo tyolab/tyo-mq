@@ -1,0 +1,35 @@
+services:
+  tyo-mq:
+    build: .
+    image: tyo-mq:local
+    ports:
+      - "${TYO_MQ_PORT:-17352}:17352"
+    environment:
+      TYO_MQ_AUTH_ENABLED: "true"
+      TYO_MQ_AUTO_ADMIN_TOKEN: "false"
+      TYO_MQ_ADMIN_TOKEN: "${TYO_MQ_ADMIN_TOKEN:?Set TYO_MQ_ADMIN_TOKEN before running docker compose}"
+      TYO_MQ_PORT: "17352"
+      TYO_MQ_SETTINGS_FILE: "/data/tyo-mq.settings.json"
+      TYO_MQ_ENV_FILE: "/data/.env"
+    volumes:
+      - tyo-mq-state:/data
+    restart: unless-stopped
+
+  manager:
+    build: .
+    image: tyo-mq:local
+    profiles:
+      - tools
+    depends_on:
+      - tyo-mq
+    environment:
+      TYO_MQ_HOST: "tyo-mq"
+      TYO_MQ_PORT: "17352"
+      TYO_MQ_PROTOCOL: "http"
+      TYO_MQ_ADMIN_TOKEN: "${TYO_MQ_ADMIN_TOKEN:?Set TYO_MQ_ADMIN_TOKEN before running docker compose}"
+    stdin_open: true
+    tty: true
+    command: ["npm", "run", "manager"]
+
+volumes:
+  tyo-mq-state:
