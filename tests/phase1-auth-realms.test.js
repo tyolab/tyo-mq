@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const Authorization = require('../lib/authorization');
 const Factory = require('../lib/factory');
 const { test, run } = require('./runner');
 const { startServer, delay, waitFor } = require('./helpers');
@@ -287,6 +288,151 @@ test('server generates missing admin token in .env and helper authenticates with
         else
             process.env.TYO_MQ_ADMIN_TOKEN = originalAdminToken;
         fs.rmSync(tmpDir, {recursive: true, force: true});
+    }
+});
+
+test('manager signs authorization approval without sending admin token', async () => {
+    const adminToken = 'secret-admin';
+    const clientToken = 'requested-client-token';
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            tokens: [
+                { token: adminToken, realm: '*', role: 'admin' }
+            ]
+        }
+    });
+    const options = {host: '127.0.0.1', port: authServer.port, protocol: 'http'};
+
+    try {
+        const submitted = await Authorization.submitAuthorizationRequest({
+            realm: 'managed-realm',
+            role: 'consumer',
+            client_id: 'managed-client-1',
+            client_name: 'Managed Client',
+            client_token: clientToken,
+            challenge_response: {challenge: 'ticket-123', response: 'approved-by-helpdesk'}
+        }, options);
+        assert.ok(submitted.request_id);
+
+        const invalid = await Authorization.nextAuthorizationRequest('wrong-admin-token', {}, options)
+            .then(() => null)
+            .catch(err => err.response);
+        assert.strictEqual(invalid.code, 401);
+
+        const next = await Authorization.nextAuthorizationRequest(adminToken, {}, options);
+        assert.strictEqual(next.request.request_id, submitted.request_id);
+        assert.strictEqual(next.request.realm, 'managed-realm');
+        assert.strictEqual(next.request.client_id, 'managed-client-1');
+        assert.ok(!next.request.client_token, 'manager response should not expose raw client token');
+
+        const decision = await Authorization.decideAuthorizationRequest(adminToken, {
+            request_id: submitted.request_id,
+            approved: true,
+            role: 'consumer'
+        }, options);
+        assert.strictEqual(decision.request.status, 'approved');
+
+        const client = new Factory({
+            host: '127.0.0.1',
+            port: authServer.port,
+            protocol: 'http',
+            auth: {token: clientToken}
+        });
+        const consumer = await client.createConsumer('managed-client-consumer');
+        assert.deepStrictEqual(consumer.authInfo, {realm: 'managed-realm', role: 'consumer'});
+        consumer.disconnect();
+    } finally {
+        await authServer.close();
+    }
+});
+
+test('same client authorization request keeps only the latest pending copy', async () => {
+    const adminToken = 'secret-admin';
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            tokens: [
+                { token: adminToken, realm: '*', role: 'admin' }
+            ]
+        }
+    });
+    const options = {host: '127.0.0.1', port: authServer.port, protocol: 'http'};
+
+    try {
+        const first = await Authorization.submitAuthorizationRequest({
+            realm: 'managed-realm',
+            role: 'consumer',
+            client_id: 'managed-client-2',
+            client_name: 'Managed Client v1',
+            client_token: 'first-client-token'
+        }, options);
+        const second = await Authorization.submitAuthorizationRequest({
+            realm: 'managed-realm',
+            role: 'producer',
+            client_id: 'managed-client-2',
+            client_name: 'Managed Client v2',
+            client_token: 'second-client-token'
+        }, options);
+
+        assert.notStrictEqual(first.request_id, second.request_id);
+
+        const next = await Authorization.nextAuthorizationRequest(adminToken, {}, options);
+        assert.strictEqual(next.request.request_id, second.request_id);
+        assert.strictEqual(next.request.client_name, 'Managed Client v2');
+        assert.strictEqual(next.request.role, 'producer');
+
+        const oldDecision = await Authorization.decideAuthorizationRequest(adminToken, {
+            request_id: first.request_id,
+            approved: true
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(oldDecision.code, 404);
+    } finally {
+        await authServer.close();
+    }
+});
+
+test('manager sends signed realm management commands to server', async () => {
+    const adminToken = 'secret-admin';
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            tokens: [
+                { token: adminToken, realm: '*', role: 'admin' }
+            ]
+        }
+    });
+    const options = {host: '127.0.0.1', port: authServer.port, protocol: 'http'};
+
+    try {
+        const invalid = await Authorization.authManagementCommand('wrong-admin-token', {
+            command: 'get'
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(invalid.code, 401);
+
+        const added = await Authorization.authManagementCommand(adminToken, {
+            command: 'add_realm',
+            realm: 'managed-command-realm',
+            required: false
+        }, options);
+        assert.strictEqual(added.settings.realms['managed-command-realm'].required, false);
+
+        const renamed = await Authorization.authManagementCommand(adminToken, {
+            command: 'rename_realm',
+            from: 'managed-command-realm',
+            to: 'managed-command-renamed'
+        }, options);
+        assert.ok(!renamed.settings.realms['managed-command-realm']);
+        assert.strictEqual(renamed.settings.realms['managed-command-renamed'].required, false);
+
+        const enabled = await Authorization.authManagementCommand(adminToken, {
+            command: 'set_realm_auth',
+            realm: 'managed-command-renamed',
+            required: true
+        }, options);
+        assert.strictEqual(enabled.settings.realms['managed-command-renamed'].required, true);
+    } finally {
+        await authServer.close();
     }
 });
 

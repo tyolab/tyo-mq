@@ -1,6 +1,6 @@
 {
   "name": "tyo-mq",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Distributed Message Pub/Sub Service with socket.io",
   "main": "index.js",
   "scripts": {
@@ -9,6 +9,9 @@
     "test:legacy": "node test.js",
     "start": "node server.js",
     "auth:admin": "node scripts/admin-auth.js",
+    "auth:request": "node scripts/auth-request.js",
+    "auth:manager": "node scripts/auth-manager.js",
+    "manager": "node scripts/manager.js",
     "browserify": "browserify web/web.js -o web/client/tyo-mq-client.js"
   },
   "author": "TYO Lab",
