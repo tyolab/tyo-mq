@@ -165,6 +165,69 @@ npm run auth:admin
 The helper reads `TYO_MQ_ADMIN_TOKEN` from `.env` and sends `AUTHENTICATION` to
 the running server.
 
+Managers do not need to send the admin token to approve new client tokens. A
+client can submit a pending authorization request:
+
+```bash
+npm run auth:request -- \
+  --realm tyolab \
+  --role consumer \
+  --client-id tyolab-agent-01 \
+  --client-name "Tyolab Agent 01"
+```
+
+The command prints a generated `client_token` and `request_id`. A manager can
+retrieve pending requests and approve or reject them with a signed proof derived
+from `TYO_MQ_ADMIN_TOKEN`:
+
+```bash
+npm run auth:manager -- next
+npm run auth:manager -- approve <request_id> --role consumer
+npm run auth:manager -- reject <request_id> --reason "unknown client"
+```
+
+The manager proof is an HMAC-SHA256 signature over the action, body, timestamp,
+and nonce. The admin token stays local to the manager script. Approved client
+tokens are added to the server's in-memory auth token list for the current
+server process.
+
+The same flow is available as library calls:
+
+```javascript
+var Authorization = require('tyo-mq').Authorization;
+
+await Authorization.submitAuthorizationRequest({
+    realm: 'tyolab',
+    role: 'consumer',
+    client_id: 'tyolab-agent-01',
+    client_name: 'Tyolab Agent 01',
+    client_token: 'client-secret',
+    challenge_response: { ticket: 'INC-123' }
+});
+
+var next = await Authorization.nextAuthorizationRequest(process.env.TYO_MQ_ADMIN_TOKEN);
+await Authorization.decideAuthorizationRequest(process.env.TYO_MQ_ADMIN_TOKEN, {
+    request_id: next.request.request_id,
+    approved: true,
+    role: 'consumer'
+});
+```
+
+For interactive auth and realm management:
+
+```bash
+npm run manager
+```
+
+With Docker Compose, provide the admin token from the host and persist server
+settings through the bundled volume:
+
+```bash
+export TYO_MQ_ADMIN_TOKEN="$(openssl rand -hex 32)"
+docker compose up -d tyo-mq
+docker compose run --rm manager
+```
+
 **CORS Options:**
 - `origin: "*"` - Allow all origins (development/testing)
 - `origin: ["http://localhost:3000"]` - Allow specific origins (production)
