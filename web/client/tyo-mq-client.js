@@ -135,6 +135,7 @@ function Factory (options) {
     this.host = options.host || null;
     this.protocol = options.protocol || null;
     this.args = options.args || {};
+    this.auth = options.auth || (options.token ? { token: options.token } : null);
 
     var mq = this;
 
@@ -144,11 +145,14 @@ function Factory (options) {
 
     this.createSocket = function (callback, port, host, protocol, args) {
         var mySocket = new Socket();
+        mySocket.auth = mq.auth;
         if (this.logger) 
             mySocket.logger = this.logger;
 
         if (callback) {
-            mySocket.connect(function ()  {
+            mySocket.connect(function (err)  {
+                if (err)
+                    return callback(null, err);
                 callback(mySocket);
             },
             port || mq.port,
@@ -166,22 +170,30 @@ function Factory (options) {
 
     this.createConsumerPrivate = function (context, name, callback, port, host, protocol, args, onErrorCallback) {
         var consumer = new Subscriber(name);
+        consumer.auth = mq.auth;
         
         if (context && context.logger)
             consumer.logger = context.logger;
 
         if (callback) {
-            consumer.connect(function ()  {
+            consumer.connect(function (err)  {
+                if (err) {
+                    if (onErrorCallback)
+                        onErrorCallback(err);
+                    callback(null, err);
+                    return;
+                }
+
                 onErrorCallback = onErrorCallback || function (message) {
-                    if (mq.logger)
+                    if (mq.logger && mq.logger.error)
                         mq.logger.error("Error message received: " + message);
                 };
 
                 if (onErrorCallback) {
                     var oldOnError = consumer.onError;
-                    consumer.on('ERROR', function () {
-                        oldOnError.call(consumer);
-                        onErrorCallback();
+                    consumer.on('ERROR', function (message) {
+                        oldOnError.call(consumer, message);
+                        onErrorCallback(message);
                     });
                 }
 
@@ -220,7 +232,9 @@ function Factory (options) {
                     self,
                     context, 
                     name,
-                    function (consumer) {
+                    function (consumer, err) {
+                        if (err)
+                            return reject(err);
                         resolve(consumer);
                     }, 
                     port || mq.port,
@@ -266,11 +280,18 @@ function Factory (options) {
         }
 
         var producer = new Producer(name, eventDefault);
+        producer.auth = mq.auth;
         if (context && context.logger)
             producer.logger = context.logger;
 
         if (callback)
-            return producer.connect(function ()  {
+            return producer.connect(function (err)  {
+                if (err) {
+                    if (producer.onError)
+                        producer.onError(err);
+                    callback(null, err);
+                    return;
+                }
                 callback(producer);
             },
             port,
@@ -306,7 +327,9 @@ function Factory (options) {
                         self,
                         name,
                         eventDefault,
-                        function (producer) {
+                        function (producer, err) {
+                            if (err)
+                                return reject(err);
                             resolve(producer);
                         },
                         port || mq.port,
@@ -338,6 +361,7 @@ Factory.Publisher = Producer;
 Factory.Subscriber = Subscriber;
 
 module.exports = Factory;
+
 },{"./publisher":4,"./socket":5,"./subscriber":6}],4:[function(require,module,exports){
 /**
  * @file producer.js
@@ -493,7 +517,7 @@ function Publisher (name, event) {
         var event = events.toOnConnectEvent(this.getId());
         this.off(event); // clear all previous listeners
         this.on(event, function(data) {
-            producer.logger.log("Subscriber is online");
+            producer.logger.log("Subscriber is online: name='" + (data && data.consumer) + "'  id=" + (data && data.id) + "  socket=" + (data && data.socket));
             if (callback)
                 callback(data);
         });
@@ -544,6 +568,8 @@ function Socket() {
     this.socket = null;
 
     this.connected = false;
+    this.auth = null;
+    this.authInfo = null;
     
     /**
      * Socket Id
@@ -612,12 +638,17 @@ function Socket() {
     /**
      * On Connect
      */
-    this.onConnect = function () {
-        this.sendIdentificationInfo();
-
+    this.onConnect = function (callback) {
         this.on("ERROR", function (message) {
             if (self.onError)
                 self.onError.call(self, message);
+        });
+
+        this.authenticate(function (err) {
+            if (!err)
+                self.sendIdentificationInfo();
+            if (callback)
+                callback(err);
         });
     }
 
@@ -630,6 +661,47 @@ function Socket() {
         this.logger.log("Socket (" + this.getId() + ") is disconnected");
     }
 }
+
+Socket.prototype.authenticate = function (callback) {
+    var self = this;
+    var auth = this.auth;
+
+    if (!auth || !auth.token) {
+        callback();
+        return;
+    }
+
+    var done = false;
+    var timeout = setTimeout(function () {
+        finish(new Error("Authentication timeout"));
+    }, auth.timeout || 5000);
+
+    function finish (err, info) {
+        if (done)
+            return;
+        done = true;
+        clearTimeout(timeout);
+        self.socket.off('AUTH_OK', onAuthOk);
+        self.socket.off('AUTH_FAIL', onAuthFail);
+        if (info)
+            self.authInfo = info;
+        if (err && self.onError)
+            self.onError.call(self, err);
+        callback(err);
+    }
+
+    function onAuthOk (info) {
+        finish(null, info);
+    }
+
+    function onAuthFail (message) {
+        finish(new Error((message && message.message) || "Authentication failed"));
+    }
+
+    this.socket.once('AUTH_OK', onAuthOk);
+    this.socket.once('AUTH_FAIL', onAuthFail);
+    this.socket.emit('AUTHENTICATION', {token: auth.token});
+};
 
 /**
  * 
@@ -707,17 +779,23 @@ Socket.prototype.connectWith = function (callback, connectString, args) {
             if (self.logger)
                 self.logger.log(self.name + " connected to message queue server: socket id - " + self.socket.id);
             
-            self.onConnect();
+            self.onConnect(function (err) {
+                if (err) {
+                    if (self.callback)
+                        self.callback(err);
+                    return;
+                }
 
-            if (self.onConnectListeners && self.onConnectListeners.length > 0) {
-                self.onConnectListeners.forEach(function (listener) {
-                    listener();
-                });
-            }
+                if (self.onConnectListeners && self.onConnectListeners.length > 0) {
+                    self.onConnectListeners.forEach(function (listener) {
+                        listener();
+                    });
+                }
 
-            if (self.callback) {
-                self.callback();
-            }
+                if (self.callback) {
+                    self.callback();
+                }
+            });
         });
 
         // let self has a chance to register a custom onDisconnectListener
@@ -825,6 +903,7 @@ Socket.prototype.getSocketId = function () {
 Socket.prototype.getId = Socket.prototype.getSocketId;
 
 module.exports = Socket;
+
 }).call(this)}).call(this,require('_process'))
 },{"./constants":1,"_process":83,"socket.io-client":87}],6:[function(require,module,exports){
 /**
@@ -983,6 +1062,22 @@ function Subscriber (name) {
     this.unsubscribeAll = function () {
         this.socket.removeAllListeners();
     }
+
+    /**
+     * Remove only the consume-event handlers that this subscriber registered,
+     * leaving the socket.io system handlers (connect / disconnect / CONSUME_CHUNK)
+     * intact so reconnection and chunk reassembly keep working.
+     */
+    this.clearSubscriptions = function () {
+        if (!subscriber.consumes) return;
+
+        Object.keys(subscriber.consumes).forEach(function (consumerEventStr) {
+            var consumeEventStr = events.toConsumeEvent(consumerEventStr);
+            subscriber.off(consumeEventStr);
+        });
+
+        subscriber.consumes = {};
+    };
 
     this.setOnProducerOnlineListener = function (producer, callback) {
         var eventStr = events.toEventString(producer, null, "ONLINE");
