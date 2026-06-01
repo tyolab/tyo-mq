@@ -25,6 +25,7 @@
           <label for="admin-token">Admin token</label>
           <input id="admin-token" type="password" autocomplete="off">
         </div>
+        <button id="clear-token-btn" class="secondary" type="button">Clear token</button>
         <button id="show-settings-btn" type="button">Refresh</button>
       </section>
 
@@ -56,12 +57,18 @@
         <div class="panel">
           <div class="section-heading">
             <h2>Authorization Requests</h2>
-            <button id="next-request-btn" type="button">Next</button>
+            <div class="button-group">
+              <button id="refresh-request-btn" class="secondary" type="button">Refresh</button>
+              <button id="next-request-btn" type="button">Next</button>
+            </div>
           </div>
 
           <div class="field">
             <label for="request-realm-filter">Realm filter</label>
-            <input id="request-realm-filter" type="text" placeholder="blank for any" autocomplete="off">
+            <select id="request-realm-filter">
+              <option value="">Any realm</option>
+            </select>
+            <input id="request-realm-custom" class="hidden-field" type="text" placeholder="Custom realm" autocomplete="off">
           </div>
 
           <div id="request-card" class="request-card empty">No pending request loaded</div>

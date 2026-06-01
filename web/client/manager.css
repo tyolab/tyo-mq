@@ -105,6 +105,15 @@ label {
   min-width: 0;
 }
 
+.hidden-field {
+  display: none;
+  margin-top: 8px;
+}
+
+.hidden-field.visible {
+  display: block;
+}
+
 .grow {
   flex: 1 1 360px;
 }
@@ -131,6 +140,11 @@ label {
 .section-heading h2 {
   margin: 0;
   font-size: 18px;
+}
+
+.button-group {
+  display: flex;
+  gap: 8px;
 }
 
 .inline-form,
