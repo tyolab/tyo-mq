@@ -5,6 +5,7 @@ module.exports = {
     Factory: Factory,
     Server: require('./lib/server'),
     Settings: require('./lib/settings'),
+    Storage: require('./lib/storage'),
 
     // @depreciated
     MessageQueue: Factory

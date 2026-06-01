@@ -279,7 +279,13 @@ function Factory (options) {
             eventDefault = null;
         }
 
-        var producer = new Producer(name, eventDefault);
+        var producerOptions = null;
+        if (eventDefault && typeof eventDefault === 'object' && !Array.isArray(eventDefault)) {
+            producerOptions = eventDefault;
+            eventDefault = null;
+        }
+
+        var producer = new Producer(name, eventDefault, producerOptions);
         producer.auth = mq.auth;
         if (context && context.logger)
             producer.logger = context.logger;
@@ -376,12 +382,26 @@ function SubscriberInfo (name) {
     this.name = name;
 }
 
-function Publisher (name, event) {
+function Publisher (name, event, options) {
+    if (event && typeof event === 'object' && !Array.isArray(event)) {
+        options = event;
+        event = null;
+    }
+    options = options || {};
+
     // call parent constructor
     Subscriber.call(this, name);
 
     var producer = this;
     this.eventDefault = event || Constants.EVENT_DEFAULT;
+    if (options.default_ttl !== undefined)
+        this.default_ttl = options.default_ttl;
+    else if (options.defaultTtl !== undefined)
+        this.default_ttl = options.defaultTtl;
+    else if (options.ttl !== undefined)
+        this.default_ttl = options.ttl;
+    else
+        this.default_ttl = null;
 
     this.subscribers = {};
     this.onSubscriptionListener = null;
@@ -393,7 +413,10 @@ function Publisher (name, event) {
      */
 
     this.sendIdentificationInfo = function () {
-        this.sendMessage.call(producer, 'PRODUCER', {name: name});
+        var payload = {name: name};
+        if (producer.default_ttl !== null && producer.default_ttl !== undefined)
+            payload.default_ttl = producer.default_ttl;
+        this.sendMessage.call(producer, 'PRODUCER', payload);
     };
 
     /**
@@ -413,7 +436,7 @@ function Publisher (name, event) {
     this.produce = function (event, data, validFor, to) {
         var self = this;
 
-        if (!data) {
+        if (data === undefined) {
             data = event;
             event = this.eventDefault;
 
@@ -421,7 +444,20 @@ function Publisher (name, event) {
                 throw new Error('Default event name is not set.');
         }
 
-        var message = {event:event, message:data, from:self.name, lifespan: validFor || -1};
+        var options = {};
+        if (validFor && typeof validFor === 'object' && !Array.isArray(validFor))
+            options = validFor;
+
+        var message = {event:event, message:data, from:self.name};
+        if (options.ttl !== undefined)
+            message.ttl = options.ttl;
+        else if (self.default_ttl !== null && self.default_ttl !== undefined)
+            message.ttl = self.default_ttl;
+        else if (validFor !== undefined && !(validFor && typeof validFor === 'object'))
+            message.lifespan = validFor;
+        if (to)
+            message.to = to;
+
         var str = JSON.stringify(message);
         var chunkSize = Publisher.CHUNK_SIZE;
 
@@ -533,6 +569,7 @@ function Publisher (name, event) {
 util.inherits(Publisher, Subscriber);
 
 module.exports = Publisher;
+
 },{"./constants":1,"./events":2,"./subscriber":6,"util":97}],5:[function(require,module,exports){
 (function (process){(function (){
 /**
@@ -923,11 +960,13 @@ const { constants } = require('buffer');
  * 
  */
 
-function Subscriber (name) {
+function Subscriber (name, options) {
+    options = options || {};
     this.context = null;
 
     Socket.call(this);
     this.name = name || Constants.ANONYMOUS;
+    this.consumer_id = options.consumer_id || options.consumerId || this.name;
 
     var subscriber = this;
 
@@ -937,7 +976,11 @@ function Subscriber (name) {
      */
 
     this.sendIdentificationInfo = function () {
-        this.sendMessage.call(subscriber, 'CONSUMER', {name: name});
+        this.sendMessage.call(subscriber, 'CONSUMER', {
+            name: subscriber.name,
+            id: subscriber.consumer_id,
+            consumer_id: subscriber.consumer_id
+        });
     }
 
     /**
@@ -946,15 +989,39 @@ function Subscriber (name) {
 
     this.resubscribeWhenReconnect = function (context, who, event, onConsumeCallback, reSubscribe) {
         var self = this;
+        var subscribeOptions = {};
 
-        if (reSubscribe === null)
+        if (reSubscribe === null || reSubscribe === undefined)
             reSubscribe = true;
 
-        if (!onConsumeCallback) {
+        if (typeof who === 'function' && event && typeof event === 'object' && !Array.isArray(event)) {
+            subscribeOptions = event;
+            onConsumeCallback = who;
+            event = context;
+            who = Constants.ALL_PUBLISHERS;
+            context = self;
+        }
+        else if (typeof event === 'function') {
+            var optionArg = onConsumeCallback;
             onConsumeCallback = event;
             event = who;
             who = context;
             context = self;
+
+            if (optionArg && typeof optionArg === 'object')
+                subscribeOptions = optionArg;
+            else if (typeof optionArg === 'boolean')
+                reSubscribe = optionArg;
+        }
+        else if (!onConsumeCallback) {
+            onConsumeCallback = event;
+            event = who;
+            who = context;
+            context = self;
+        }
+        else if (reSubscribe && typeof reSubscribe === 'object') {
+            subscribeOptions = reSubscribe;
+            reSubscribe = subscribeOptions.reconnect;
         }
 
         function resubscribeListener() {
@@ -984,7 +1051,14 @@ function Subscriber (name) {
              */
     
             function sendSubscriptionMessage () {
-                self.sendMessage('SUBSCRIBE', {event:eventStr, producer: who, consumer:self.name, scope: scope});
+                self.sendMessage('SUBSCRIBE', {
+                    event:eventStr,
+                    producer: who,
+                    consumer:self.name,
+                    scope: scope,
+                    durable: !!subscribeOptions.durable,
+                    consumer_id: subscribeOptions.consumer_id || subscribeOptions.consumerId || self.consumer_id
+                });
             }
     
             // On Connect Message will be trigger by system
@@ -1097,6 +1171,7 @@ function Subscriber (name) {
 util.inherits(Subscriber, Socket);
 
 module.exports = Subscriber;
+
 },{"./constants":1,"./events":2,"./socket":5,"buffer":10,"util":97}],7:[function(require,module,exports){
 
 /**
@@ -3300,10 +3375,10 @@ var applyBind = require('call-bind-apply-helpers/applyBind');
 
 module.exports = function callBind(originalFunction) {
 	var func = callBindBasic(arguments);
-	var adjustedLength = originalFunction.length - (arguments.length - 1);
+	var adjustedLength = 1 + originalFunction.length - (arguments.length - 1);
 	return setFunctionLength(
 		func,
-		1 + (adjustedLength > 0 ? adjustedLength : 0),
+		adjustedLength > 0 ? adjustedLength : 0,
 		true
 	);
 };
@@ -3468,6 +3543,7 @@ function useColors() {
 
 	// Is webkit? http://stackoverflow.com/a/16459606/376773
 	// document is undefined in react-native: https://github.com/facebook/react-native/pull/1632
+	// eslint-disable-next-line no-return-assign
 	return (typeof document !== 'undefined' && document.documentElement && document.documentElement.style && document.documentElement.style.WebkitAppearance) ||
 		// Is firebug? http://stackoverflow.com/a/398120/376773
 		(typeof window !== 'undefined' && window.console && (window.console.firebug || (window.console.exception && window.console.table))) ||
@@ -3557,7 +3633,7 @@ function save(namespaces) {
 function load() {
 	let r;
 	try {
-		r = exports.storage.getItem('debug');
+		r = exports.storage.getItem('debug') || exports.storage.getItem('DEBUG') ;
 	} catch (error) {
 		// Swallow
 		// XXX (@Qix-) should we be logging these?
@@ -3779,24 +3855,62 @@ function setup(env) {
 		createDebug.names = [];
 		createDebug.skips = [];
 
-		let i;
-		const split = (typeof namespaces === 'string' ? namespaces : '').split(/[\s,]+/);
-		const len = split.length;
+		const split = (typeof namespaces === 'string' ? namespaces : '')
+			.trim()
+			.replace(/\s+/g, ',')
+			.split(',')
+			.filter(Boolean);
 
-		for (i = 0; i < len; i++) {
-			if (!split[i]) {
-				// ignore empty strings
-				continue;
-			}
-
-			namespaces = split[i].replace(/\*/g, '.*?');
-
-			if (namespaces[0] === '-') {
-				createDebug.skips.push(new RegExp('^' + namespaces.slice(1) + '$'));
+		for (const ns of split) {
+			if (ns[0] === '-') {
+				createDebug.skips.push(ns.slice(1));
 			} else {
-				createDebug.names.push(new RegExp('^' + namespaces + '$'));
+				createDebug.names.push(ns);
 			}
 		}
+	}
+
+	/**
+	 * Checks if the given string matches a namespace template, honoring
+	 * asterisks as wildcards.
+	 *
+	 * @param {String} search
+	 * @param {String} template
+	 * @return {Boolean}
+	 */
+	function matchesTemplate(search, template) {
+		let searchIndex = 0;
+		let templateIndex = 0;
+		let starIndex = -1;
+		let matchIndex = 0;
+
+		while (searchIndex < search.length) {
+			if (templateIndex < template.length && (template[templateIndex] === search[searchIndex] || template[templateIndex] === '*')) {
+				// Match character or proceed with wildcard
+				if (template[templateIndex] === '*') {
+					starIndex = templateIndex;
+					matchIndex = searchIndex;
+					templateIndex++; // Skip the '*'
+				} else {
+					searchIndex++;
+					templateIndex++;
+				}
+			} else if (starIndex !== -1) { // eslint-disable-line no-negated-condition
+				// Backtrack to the last '*' and try to match more characters
+				templateIndex = starIndex + 1;
+				matchIndex++;
+				searchIndex = matchIndex;
+			} else {
+				return false; // No match
+			}
+		}
+
+		// Handle trailing '*' in template
+		while (templateIndex < template.length && template[templateIndex] === '*') {
+			templateIndex++;
+		}
+
+		return templateIndex === template.length;
 	}
 
 	/**
@@ -3807,8 +3921,8 @@ function setup(env) {
 	*/
 	function disable() {
 		const namespaces = [
-			...createDebug.names.map(toNamespace),
-			...createDebug.skips.map(toNamespace).map(namespace => '-' + namespace)
+			...createDebug.names,
+			...createDebug.skips.map(namespace => '-' + namespace)
 		].join(',');
 		createDebug.enable('');
 		return namespaces;
@@ -3822,39 +3936,19 @@ function setup(env) {
 	* @api public
 	*/
 	function enabled(name) {
-		if (name[name.length - 1] === '*') {
-			return true;
-		}
-
-		let i;
-		let len;
-
-		for (i = 0, len = createDebug.skips.length; i < len; i++) {
-			if (createDebug.skips[i].test(name)) {
+		for (const skip of createDebug.skips) {
+			if (matchesTemplate(name, skip)) {
 				return false;
 			}
 		}
 
-		for (i = 0, len = createDebug.names.length; i < len; i++) {
-			if (createDebug.names[i].test(name)) {
+		for (const ns of createDebug.names) {
+			if (matchesTemplate(name, ns)) {
 				return true;
 			}
 		}
 
 		return false;
-	}
-
-	/**
-	* Convert regexp to namespace
-	*
-	* @param {RegExp} regxep
-	* @return {String} namespace
-	* @api private
-	*/
-	function toNamespace(regexp) {
-		return regexp.toString()
-			.substring(2, regexp.toString().length - 2)
-			.replace(/\.\*\?$/, '*');
 	}
 
 	/**
@@ -4596,7 +4690,7 @@ class SocketWithoutUpgrade extends component_emitter_1.Emitter {
     /**
      * Sends a packet.
      *
-     * @param {String} type: packet type.
+     * @param {String} type - packet type.
      * @param {String} data.
      * @param {Object} options.
      * @param {Function} fn - callback function.
@@ -5070,7 +5164,7 @@ class Transport extends component_emitter_1.Emitter {
     }
     _port() {
         if (this.opts.port &&
-            ((this.opts.secure && Number(this.opts.port !== 443)) ||
+            ((this.opts.secure && Number(this.opts.port) !== 443) ||
                 (!this.opts.secure && Number(this.opts.port) !== 80))) {
             return ":" + this.opts.port;
         }
@@ -5200,8 +5294,8 @@ class BaseXHR extends polling_js_1.Polling {
     /**
      * Sends data.
      *
-     * @param {String} data to send.
-     * @param {Function} called upon flush.
+     * @param {String} data - data to send.
+     * @param {Function} fn - called upon flush.
      * @private
      */
     doWrite(data, fn) {
@@ -8902,8 +8996,7 @@ class Socket extends component_emitter_1.Emitter {
         };
         args.push((err, ...responseArgs) => {
             if (packet !== this._queue[0]) {
-                // the packet has already been acknowledged
-                return;
+                return debug("packet [%d] already acknowledged", packet.id);
             }
             const hasError = err !== null;
             if (hasError) {
@@ -9159,8 +9252,8 @@ class Socket extends component_emitter_1.Emitter {
         this._pid = pid; // defined only if connection state recovery is enabled
         this.connected = true;
         this.emitBuffered();
-        this.emitReserved("connect");
         this._drainQueue(true);
+        this.emitReserved("connect");
     }
     /**
      * Emit buffered events (received and emitted).
@@ -9527,7 +9620,8 @@ function url(uri, path = "", loc) {
 },{"debug":19,"engine.io-client":27}],92:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.reconstructPacket = exports.deconstructPacket = void 0;
+exports.deconstructPacket = deconstructPacket;
+exports.reconstructPacket = reconstructPacket;
 const is_binary_js_1 = require("./is-binary.js");
 /**
  * Replaces every Buffer | ArrayBuffer | Blob | File in packet with a numbered placeholder.
@@ -9544,7 +9638,6 @@ function deconstructPacket(packet) {
     pack.attachments = buffers.length; // number of binary 'attachments'
     return { packet: pack, buffers: buffers };
 }
-exports.deconstructPacket = deconstructPacket;
 function _deconstructPacket(data, buffers) {
     if (!data)
         return data;
@@ -9584,7 +9677,6 @@ function reconstructPacket(packet, buffers) {
     delete packet.attachments; // no longer useful
     return packet;
 }
-exports.reconstructPacket = reconstructPacket;
 function _reconstructPacket(data, buffers) {
     if (!data)
         return data;
@@ -9618,6 +9710,7 @@ function _reconstructPacket(data, buffers) {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Decoder = exports.Encoder = exports.PacketType = exports.protocol = void 0;
+exports.isPacketValid = isPacketValid;
 const component_emitter_1 = require("@socket.io/component-emitter");
 const binary_js_1 = require("./binary.js");
 const is_binary_js_1 = require("./is-binary.js");
@@ -9627,11 +9720,11 @@ const debug = (0, debug_1.default)("socket.io-parser"); // debug()
  * These strings must not be used as event names, as they have a special meaning.
  */
 const RESERVED_EVENTS = [
-    "connect",
-    "connect_error",
-    "disconnect",
-    "disconnecting",
-    "newListener",
+    "connect", // used on the client side
+    "connect_error", // used on the client side
+    "disconnect", // used on both sides
+    "disconnecting", // used on the server side
+    "newListener", // used by the Node.js EventEmitter
     "removeListener", // used by the Node.js EventEmitter
 ];
 /**
@@ -9649,7 +9742,7 @@ var PacketType;
     PacketType[PacketType["CONNECT_ERROR"] = 4] = "CONNECT_ERROR";
     PacketType[PacketType["BINARY_EVENT"] = 5] = "BINARY_EVENT";
     PacketType[PacketType["BINARY_ACK"] = 6] = "BINARY_ACK";
-})(PacketType = exports.PacketType || (exports.PacketType = {}));
+})(PacketType || (exports.PacketType = PacketType = {}));
 /**
  * A socket.io Encoder instance
  */
@@ -9725,10 +9818,6 @@ class Encoder {
     }
 }
 exports.Encoder = Encoder;
-// see https://stackoverflow.com/questions/8511281/check-if-a-value-is-an-object-in-javascript
-function isObject(value) {
-    return Object.prototype.toString.call(value) === "[object Object]";
-}
 /**
  * A socket.io Decoder instance
  *
@@ -9737,12 +9826,13 @@ function isObject(value) {
 class Decoder extends component_emitter_1.Emitter {
     /**
      * Decoder constructor
-     *
-     * @param {function} reviver - custom reviver to pass down to JSON.stringify
      */
-    constructor(reviver) {
+    constructor(opts) {
         super();
-        this.reviver = reviver;
+        this.opts = Object.assign({
+            reviver: undefined,
+            maxAttachments: 10,
+        }, typeof opts === "function" ? { reviver: opts } : opts);
     }
     /**
      * Decodes an encoded packet string into packet JSON.
@@ -9813,7 +9903,14 @@ class Decoder extends component_emitter_1.Emitter {
             if (buf != Number(buf) || str.charAt(i) !== "-") {
                 throw new Error("Illegal attachments");
             }
-            p.attachments = Number(buf);
+            const n = Number(buf);
+            if (!isInteger(n) || n < 0) {
+                throw new Error("Illegal attachments");
+            }
+            else if (n > this.opts.maxAttachments) {
+                throw new Error("too many attachments");
+            }
+            p.attachments = n;
         }
         // look up namespace (if any)
         if ("/" === str.charAt(i + 1)) {
@@ -9860,7 +9957,7 @@ class Decoder extends component_emitter_1.Emitter {
     }
     tryParse(str) {
         try {
-            return JSON.parse(str, this.reviver);
+            return JSON.parse(str, this.opts.reviver);
         }
         catch (e) {
             return false;
@@ -9936,11 +10033,53 @@ class BinaryReconstructor {
         this.buffers = [];
     }
 }
+function isNamespaceValid(nsp) {
+    return typeof nsp === "string";
+}
+// see https://caniuse.com/mdn-javascript_builtins_number_isinteger
+const isInteger = Number.isInteger ||
+    function (value) {
+        return (typeof value === "number" &&
+            isFinite(value) &&
+            Math.floor(value) === value);
+    };
+function isAckIdValid(id) {
+    return id === undefined || isInteger(id);
+}
+// see https://stackoverflow.com/questions/8511281/check-if-a-value-is-an-object-in-javascript
+function isObject(value) {
+    return Object.prototype.toString.call(value) === "[object Object]";
+}
+function isDataValid(type, payload) {
+    switch (type) {
+        case PacketType.CONNECT:
+            return payload === undefined || isObject(payload);
+        case PacketType.DISCONNECT:
+            return payload === undefined;
+        case PacketType.EVENT:
+            return (Array.isArray(payload) &&
+                (typeof payload[0] === "number" ||
+                    (typeof payload[0] === "string" &&
+                        RESERVED_EVENTS.indexOf(payload[0]) === -1)));
+        case PacketType.ACK:
+            return Array.isArray(payload);
+        case PacketType.CONNECT_ERROR:
+            return typeof payload === "string" || isObject(payload);
+        default:
+            return false;
+    }
+}
+function isPacketValid(packet) {
+    return (isNamespaceValid(packet.nsp) &&
+        isAckIdValid(packet.id) &&
+        isDataValid(packet.type, packet.data));
+}
 
 },{"./binary.js":92,"./is-binary.js":94,"@socket.io/component-emitter":7,"debug":19}],94:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.hasBinary = exports.isBinary = void 0;
+exports.isBinary = isBinary;
+exports.hasBinary = hasBinary;
 const withNativeArrayBuffer = typeof ArrayBuffer === "function";
 const isView = (obj) => {
     return typeof ArrayBuffer.isView === "function"
@@ -9964,7 +10103,6 @@ function isBinary(obj) {
         (withNativeBlob && obj instanceof Blob) ||
         (withNativeFile && obj instanceof File));
 }
-exports.isBinary = isBinary;
 function hasBinary(obj, toJSON) {
     if (!obj || typeof obj !== "object") {
         return false;
@@ -9992,7 +10130,6 @@ function hasBinary(obj, toJSON) {
     }
     return false;
 }
-exports.hasBinary = hasBinary;
 
 },{}],95:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
