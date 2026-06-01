@@ -4,8 +4,9 @@
   "description": "Distributed Message Pub/Sub Service with socket.io",
   "main": "index.js",
   "scripts": {
-    "test": "node tests/server.test.js && node tests/phase1-auth-realms.test.js",
+    "test": "node tests/server.test.js && node tests/phase1-auth-realms.test.js && node tests/phase2-persistence.test.js",
     "test:phase1": "node tests/phase1-auth-realms.test.js",
+    "test:phase2": "node tests/phase2-persistence.test.js",
     "test:legacy": "node test.js",
     "test:remote": "node scripts/remote-smoke-test.js",
     "start": "node server.js",
@@ -23,6 +24,7 @@
     "http": "0.0.0",
     "http-proxy": "^1.18.0",
     "node-programmer": "^0.0.29",
+    "redis": "^6.0.0",
     "socket.io": "^4.5.2",
     "socket.io-client": "^4.5.2",
     "utf-8-validate": "^5.0.10"
