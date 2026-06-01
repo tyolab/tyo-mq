@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TYO MQ Manager</title>
+    <link rel="stylesheet" href="manager.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>TYO MQ Manager</h1>
+          <p id="status">Not connected</p>
+        </div>
+        <button id="connect-btn" type="button">Connect</button>
+      </header>
+
+      <section class="panel connection">
+        <div class="field grow">
+          <label for="server-url">Server URL</label>
+          <input id="server-url" type="url" placeholder="https://your-mq-server.example">
+        </div>
+        <div class="field token">
+          <label for="admin-token">Admin token</label>
+          <input id="admin-token" type="password" autocomplete="off">
+        </div>
+        <button id="show-settings-btn" type="button">Refresh</button>
+      </section>
+
+      <section class="grid">
+        <div class="panel">
+          <div class="section-heading">
+            <h2>Realms</h2>
+            <button id="refresh-realms-btn" type="button">Refresh</button>
+          </div>
+
+          <form id="add-realm-form" class="inline-form">
+            <input id="new-realm" type="text" placeholder="realm name" autocomplete="off">
+            <label class="check">
+              <input id="new-realm-required" type="checkbox" checked>
+              Require auth
+            </label>
+            <button type="submit">Add</button>
+          </form>
+
+          <form id="rename-realm-form" class="inline-form">
+            <input id="rename-from" type="text" placeholder="current realm" autocomplete="off">
+            <input id="rename-to" type="text" placeholder="new realm" autocomplete="off">
+            <button type="submit">Rename</button>
+          </form>
+
+          <div id="realms-list" class="list empty">No realms loaded</div>
+        </div>
+
+        <div class="panel">
+          <div class="section-heading">
+            <h2>Authorization Requests</h2>
+            <button id="next-request-btn" type="button">Next</button>
+          </div>
+
+          <div class="field">
+            <label for="request-realm-filter">Realm filter</label>
+            <input id="request-realm-filter" type="text" placeholder="blank for any" autocomplete="off">
+          </div>
+
+          <div id="request-card" class="request-card empty">No pending request loaded</div>
+
+          <div class="decision-row">
+            <select id="approve-role">
+              <option value="both">both</option>
+              <option value="producer">producer</option>
+              <option value="consumer">consumer</option>
+            </select>
+            <button id="approve-request-btn" type="button">Approve</button>
+          </div>
+
+          <div class="decision-row">
+            <input id="reject-reason" type="text" placeholder="Reject reason" autocomplete="off">
+            <button id="reject-request-btn" type="button">Reject</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading">
+          <h2>Auth Settings</h2>
+          <button id="copy-settings-btn" type="button">Copy</button>
+        </div>
+        <pre id="settings-output">{}</pre>
+      </section>
+    </main>
+
+    <script src="tyo-mq-client.js"></script>
+    <script src="manager-ui.js"></script>
+  </body>
+</html>
