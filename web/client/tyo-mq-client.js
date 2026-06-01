@@ -652,6 +652,8 @@ function Socket() {
         });
     }
 
+    this.sendIdentificationInfo = function () {};
+
     /**
      * On Disconnect
      */

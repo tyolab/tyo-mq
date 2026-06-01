@@ -5,6 +5,7 @@ node_modules
 .claude
 tests
 *.md
+package-lock.json
 package-lock.json.orig
 server.js.orig
 subscriber.js.orig
