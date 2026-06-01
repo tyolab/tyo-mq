@@ -9,6 +9,7 @@
     serverUrl: document.getElementById('server-url'),
     adminToken: document.getElementById('admin-token'),
     connectBtn: document.getElementById('connect-btn'),
+    clearTokenBtn: document.getElementById('clear-token-btn'),
     showSettingsBtn: document.getElementById('show-settings-btn'),
     refreshRealmsBtn: document.getElementById('refresh-realms-btn'),
     addRealmForm: document.getElementById('add-realm-form'),
@@ -19,6 +20,8 @@
     renameTo: document.getElementById('rename-to'),
     realmsList: document.getElementById('realms-list'),
     requestRealmFilter: document.getElementById('request-realm-filter'),
+    requestRealmCustom: document.getElementById('request-realm-custom'),
+    refreshRequestBtn: document.getElementById('refresh-request-btn'),
     nextRequestBtn: document.getElementById('next-request-btn'),
     requestCard: document.getElementById('request-card'),
     approveRole: document.getElementById('approve-role'),
@@ -190,6 +193,7 @@
     var realms = (settings && settings.realms) || {};
     var names = Object.keys(realms).sort();
     els.realmsList.innerHTML = '';
+    renderRealmFilter(names);
 
     if (names.length === 0) {
       els.realmsList.className = 'list empty';
@@ -224,6 +228,51 @@
       row.appendChild(toggle);
       els.realmsList.appendChild(row);
     });
+  }
+
+  function getRequestRealmFilter() {
+    if (els.requestRealmFilter.value === '__custom')
+      return els.requestRealmCustom.value.trim();
+    return els.requestRealmFilter.value.trim();
+  }
+
+  function renderRealmFilter(names) {
+    var saved = window.localStorage.getItem('tyoMqManagerRealmFilter') || '';
+    var current = getRequestRealmFilter() || saved;
+    els.requestRealmFilter.innerHTML = '';
+
+    var any = document.createElement('option');
+    any.value = '';
+    any.textContent = 'Any realm';
+    els.requestRealmFilter.appendChild(any);
+
+    names.forEach(function (name) {
+      var option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      els.requestRealmFilter.appendChild(option);
+    });
+
+    var custom = document.createElement('option');
+    custom.value = '__custom';
+    custom.textContent = 'Custom realm...';
+    els.requestRealmFilter.appendChild(custom);
+
+    if (!current) {
+      els.requestRealmFilter.value = '';
+      els.requestRealmCustom.classList.remove('visible');
+      els.requestRealmCustom.value = '';
+    }
+    else if (names.indexOf(current) >= 0) {
+      els.requestRealmFilter.value = current;
+      els.requestRealmCustom.classList.remove('visible');
+      els.requestRealmCustom.value = '';
+    }
+    else {
+      els.requestRealmFilter.value = '__custom';
+      els.requestRealmCustom.classList.add('visible');
+      els.requestRealmCustom.value = current;
+    }
   }
 
   function renderRequest(request) {
@@ -340,10 +389,19 @@
 
   els.nextRequestBtn.addEventListener('click', function () {
     handle(async function () {
-      var realm = els.requestRealmFilter.value.trim();
+      var realm = getRequestRealmFilter();
       var response = await nextAuthorizationRequest(realm ? {realm: realm} : {});
       renderRequest(response.request);
       setStatus(response.request ? 'Loaded next request' : 'No pending requests');
+    });
+  });
+
+  els.refreshRequestBtn.addEventListener('click', function () {
+    handle(async function () {
+      var realm = getRequestRealmFilter();
+      var response = await nextAuthorizationRequest(realm ? {realm: realm} : {});
+      renderRequest(response.request);
+      setStatus(response.request ? 'Authorization request refreshed' : 'No pending requests');
     });
   });
 
@@ -387,13 +445,18 @@
   if (savedUrl)
     els.serverUrl.value = savedUrl;
 
+  var savedAdminToken = window.localStorage.getItem('tyoMqManagerAdminToken');
+  if (savedAdminToken)
+    els.adminToken.value = savedAdminToken;
+
   var savedNewRealm = window.localStorage.getItem('tyoMqManagerNewRealm');
   if (savedNewRealm)
     els.newRealm.value = savedNewRealm;
 
   var savedRealmFilter = window.localStorage.getItem('tyoMqManagerRealmFilter');
   if (savedRealmFilter)
-    els.requestRealmFilter.value = savedRealmFilter;
+    els.requestRealmCustom.value = savedRealmFilter;
+  renderRealmFilter([]);
 
   function saveServerUrl() {
     var serverUrl = els.serverUrl.value.trim();
@@ -413,6 +476,17 @@
 
   els.serverUrl.addEventListener('change', saveServerUrl);
   els.serverUrl.addEventListener('blur', saveServerUrl);
+  els.adminToken.addEventListener('change', function () {
+    saveOptionalInput(els.adminToken, 'tyoMqManagerAdminToken');
+  });
+  els.adminToken.addEventListener('blur', function () {
+    saveOptionalInput(els.adminToken, 'tyoMqManagerAdminToken');
+  });
+  els.clearTokenBtn.addEventListener('click', function () {
+    els.adminToken.value = '';
+    window.localStorage.removeItem('tyoMqManagerAdminToken');
+    setStatus('Saved admin token cleared');
+  });
   els.newRealm.addEventListener('change', function () {
     saveOptionalInput(els.newRealm, 'tyoMqManagerNewRealm');
   });
@@ -420,9 +494,20 @@
     saveOptionalInput(els.newRealm, 'tyoMqManagerNewRealm');
   });
   els.requestRealmFilter.addEventListener('change', function () {
-    saveOptionalInput(els.requestRealmFilter, 'tyoMqManagerRealmFilter');
+    if (els.requestRealmFilter.value === '__custom') {
+      els.requestRealmCustom.classList.add('visible');
+      saveOptionalInput(els.requestRealmCustom, 'tyoMqManagerRealmFilter');
+    }
+    else {
+      els.requestRealmCustom.classList.remove('visible');
+      els.requestRealmCustom.value = '';
+      saveOptionalInput(els.requestRealmFilter, 'tyoMqManagerRealmFilter');
+    }
   });
-  els.requestRealmFilter.addEventListener('blur', function () {
-    saveOptionalInput(els.requestRealmFilter, 'tyoMqManagerRealmFilter');
+  els.requestRealmCustom.addEventListener('change', function () {
+    saveOptionalInput(els.requestRealmCustom, 'tyoMqManagerRealmFilter');
+  });
+  els.requestRealmCustom.addEventListener('blur', function () {
+    saveOptionalInput(els.requestRealmCustom, 'tyoMqManagerRealmFilter');
   });
 }());
