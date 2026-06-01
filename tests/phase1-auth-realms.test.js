@@ -291,6 +291,40 @@ test('server generates missing admin token in .env and helper authenticates with
     }
 });
 
+test('server accepts provided admin token when auto generation is disabled', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tyo-mq-auth-'));
+    const envFile = path.join(tmpDir, '.env');
+    const adminToken = 'provided-admin-token';
+    const originalAdminToken = process.env.TYO_MQ_ADMIN_TOKEN;
+    process.env.TYO_MQ_ADMIN_TOKEN = adminToken;
+
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            env_file: envFile,
+            auto_admin_token: false
+        }
+    });
+    const ioClient = require('socket.io-client');
+    const socket = ioClient(`http://127.0.0.1:${authServer.port}`, { transports: ['websocket'] });
+
+    try {
+        await waitFor(socket, 'connect');
+        socket.emit('AUTHENTICATION', { token: adminToken });
+        const authOk = await waitFor(socket, 'AUTH_OK');
+        assert.deepStrictEqual(authOk, { realm: '*', role: 'admin' });
+        assert.strictEqual(fs.existsSync(envFile), false, 'server should not create .env when token is already provided');
+    } finally {
+        socket.disconnect();
+        await authServer.close();
+        if (originalAdminToken === undefined)
+            delete process.env.TYO_MQ_ADMIN_TOKEN;
+        else
+            process.env.TYO_MQ_ADMIN_TOKEN = originalAdminToken;
+        fs.rmSync(tmpDir, {recursive: true, force: true});
+    }
+});
+
 test('manager signs authorization approval without sending admin token', async () => {
     const adminToken = 'secret-admin';
     const clientToken = 'requested-client-token';

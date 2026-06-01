@@ -1,7 +1,6 @@
 services:
   tyo-mq:
-    build: .
-    image: tyo-mq:local
+    image: tyolab/tyo-mq:0.4.3
     ports:
       - "${TYO_MQ_PORT:-17352}:17352"
     environment:
@@ -14,10 +13,12 @@ services:
     volumes:
       - tyo-mq-state:/data
     restart: unless-stopped
+    networks:
+      - default
+      - tyo-apps-network
 
   manager:
-    build: .
-    image: tyo-mq:local
+    image: tyolab/tyo-mq:0.4.3
     profiles:
       - tools
     depends_on:
@@ -33,3 +34,8 @@ services:
 
 volumes:
   tyo-mq-state:
+
+networks:
+  tyo-apps-network:
+    external: true
+    name: tyo-apps-network
