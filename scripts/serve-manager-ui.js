@@ -33,7 +33,12 @@ var types = {
 };
 
 function send(res, status, body, contentType) {
-    res.writeHead(status, {'content-type': contentType || 'text/plain; charset=utf-8'});
+    res.writeHead(status, {
+        'content-type': contentType || 'text/plain; charset=utf-8',
+        'cache-control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'pragma': 'no-cache',
+        'expires': '0'
+    });
     res.end(body);
 }
 
