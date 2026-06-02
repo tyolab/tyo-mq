@@ -268,6 +268,46 @@ test('non-durable subscription does not replay offline messages', async () => {
     }
 });
 
+test('producer guaranteed message replays for offline non-durable subscription', async () => {
+    const server = await startServer({storage: 'memory'});
+    const client = clientFor(server.port);
+    const producerName = 'phase2-producer-guaranteed';
+    const consumerName = 'phase2-consumer-guaranteed';
+    const eventName = 'phase2-guaranteed-event';
+
+    let producer;
+    let firstConsumer;
+    let secondConsumer;
+    try {
+        producer = await client.createProducer(producerName);
+        firstConsumer = await client.createConsumer(consumerName);
+        firstConsumer.subscribe(producer.name, eventName, function () {});
+        await delay(300);
+
+        firstConsumer.disconnect();
+        await delay(500);
+
+        producer.produce(eventName, 'guaranteed offline message', {guaranteed: true});
+        await delay(300);
+
+        secondConsumer = await client.createConsumer(consumerName);
+        const received = await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('timeout waiting for guaranteed replay')), 4000);
+            secondConsumer.subscribe(producer.name, eventName, (data) => {
+                clearTimeout(timer);
+                resolve(data);
+            });
+        });
+
+        assert.strictEqual(received, 'guaranteed offline message');
+    } finally {
+        if (secondConsumer) secondConsumer.disconnect();
+        if (firstConsumer) firstConsumer.disconnect();
+        if (producer) producer.disconnect();
+        await server.close();
+    }
+});
+
 test('durable messages expire according to producer ttl', async () => {
     const server = await startServer({storage: 'memory', storage_options: {default_ttl: 60}});
     const client = clientFor(server.port);
