@@ -470,4 +470,57 @@ test('manager sends signed realm management commands to server', async () => {
     }
 });
 
+test('manager sends signed persistence management commands to server', async () => {
+    const adminToken = 'secret-admin';
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            tokens: [
+                { token: adminToken, realm: '*', role: 'admin' }
+            ]
+        }
+    });
+    const options = {host: '127.0.0.1', port: authServer.port, protocol: 'http'};
+
+    try {
+        const initial = await Authorization.authManagementCommand(adminToken, {
+            command: 'get'
+        }, options);
+        assert.strictEqual(initial.settings.persistence.storage, 'memory');
+
+        const memory = await Authorization.authManagementCommand(adminToken, {
+            command: 'set_persistence',
+            storage: 'memory',
+            storage_options: {
+                default_ttl: 12
+            }
+        }, options);
+        assert.strictEqual(memory.settings.persistence.storage, 'memory');
+        assert.strictEqual(memory.settings.persistence.storage_options.default_ttl, 12);
+
+        const redis = await Authorization.authManagementCommand(adminToken, {
+            command: 'set_persistence',
+            storage: 'redis',
+            storage_options: {
+                url: 'redis://127.0.0.1:6379/0',
+                prefix: 'phase-test',
+                default_ttl: 34
+            }
+        }, options);
+        assert.strictEqual(redis.settings.persistence.storage, 'redis');
+        assert.strictEqual(redis.settings.persistence.storage_options.url, 'redis://127.0.0.1:6379/0');
+        assert.strictEqual(redis.settings.persistence.storage_options.prefix, 'phase-test');
+        assert.strictEqual(redis.settings.persistence.storage_options.default_ttl, 34);
+
+        const invalid = await Authorization.authManagementCommand(adminToken, {
+            command: 'set_persistence',
+            storage: 'custom',
+            storage_options: {}
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(invalid.code, 400);
+    } finally {
+        await authServer.close();
+    }
+});
+
 run();
