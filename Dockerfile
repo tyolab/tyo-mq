@@ -1,8 +1,5 @@
 FROM node:22-alpine
 
-# Install build dependencies for native modules
-RUN apk add --no-cache python3 make g++
-
 WORKDIR /app
 
 ENV NODE_ENV=production \
@@ -13,11 +10,12 @@ ENV NODE_ENV=production \
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install --production
-
-# Remove build dependencies
-RUN apk del python3 make g++
+# Install production dependencies. Build tools are only needed while native
+# modules compile, so keep them in the same layer where they are removed.
+RUN apk add --no-cache --virtual .build-deps python3 make g++ \
+    && npm install --omit=dev \
+    && npm cache clean --force \
+    && apk del .build-deps
 
 # Copy project files
 COPY . .
