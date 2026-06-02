@@ -10,6 +10,10 @@
     adminToken: document.getElementById('admin-token'),
     connectBtn: document.getElementById('connect-btn'),
     clearTokenBtn: document.getElementById('clear-token-btn'),
+    mainTabBtn: document.getElementById('main-tab-btn'),
+    persistenceTabBtn: document.getElementById('persistence-tab-btn'),
+    mainTab: document.getElementById('main-tab'),
+    persistenceTab: document.getElementById('persistence-tab'),
     showSettingsBtn: document.getElementById('show-settings-btn'),
     refreshRealmsBtn: document.getElementById('refresh-realms-btn'),
     addRealmForm: document.getElementById('add-realm-form'),
@@ -29,7 +33,19 @@
     rejectReason: document.getElementById('reject-reason'),
     rejectRequestBtn: document.getElementById('reject-request-btn'),
     settingsOutput: document.getElementById('settings-output'),
-    copySettingsBtn: document.getElementById('copy-settings-btn')
+    copySettingsBtn: document.getElementById('copy-settings-btn'),
+    refreshPersistenceBtn: document.getElementById('refresh-persistence-btn'),
+    persistenceForm: document.getElementById('persistence-form'),
+    storageBackend: document.getElementById('storage-backend'),
+    storageDefaultTtl: document.getElementById('storage-default-ttl'),
+    sqliteOptions: document.getElementById('sqlite-options'),
+    sqliteFilename: document.getElementById('sqlite-filename'),
+    redisOptions: document.getElementById('redis-options'),
+    redisUrl: document.getElementById('redis-url'),
+    redisPrefix: document.getElementById('redis-prefix'),
+    customOptions: document.getElementById('custom-options'),
+    customModule: document.getElementById('custom-module'),
+    customOptionsJson: document.getElementById('custom-options-json')
   };
 
   function setStatus(message, isError) {
@@ -187,6 +203,16 @@
     settings = next || {};
     els.settingsOutput.textContent = JSON.stringify(settings, null, 2);
     renderRealms();
+    renderPersistence();
+  }
+
+  function setActiveTab(name) {
+    var isPersistence = name === 'persistence';
+    els.mainTabBtn.classList.toggle('active', !isPersistence);
+    els.persistenceTabBtn.classList.toggle('active', isPersistence);
+    els.mainTab.classList.toggle('active', !isPersistence);
+    els.persistenceTab.classList.toggle('active', isPersistence);
+    window.localStorage.setItem('tyoMqManagerActiveTab', isPersistence ? 'persistence' : 'main');
   }
 
   function renderRealms() {
@@ -308,6 +334,85 @@
     els.requestCard.appendChild(dl);
   }
 
+  function renderBackendOptions() {
+    var backend = els.storageBackend.value;
+    els.sqliteOptions.classList.toggle('visible', backend === 'sqlite');
+    els.redisOptions.classList.toggle('visible', backend === 'redis');
+    els.customOptions.classList.toggle('visible', backend === 'custom');
+  }
+
+  function renderPersistence() {
+    var persistence = (settings && settings.persistence) || {};
+    var storage = persistence.storage || 'memory';
+    var options = persistence.storage_options || {};
+
+    els.storageBackend.value = storage;
+    if (els.storageBackend.value !== storage)
+      els.storageBackend.value = 'memory';
+
+    els.storageDefaultTtl.value = options.default_ttl !== undefined ? options.default_ttl : '';
+    els.sqliteFilename.value = options.filename || options.path || '';
+    els.redisUrl.value = options.url || '';
+    els.redisPrefix.value = options.prefix || '';
+    els.customModule.value = options.module || options.module_path || '';
+
+    var customOptions = {};
+    Object.keys(options).forEach(function (key) {
+      if (['default_ttl', 'defaultTtl', 'module', 'module_path'].indexOf(key) < 0)
+        customOptions[key] = options[key];
+    });
+    els.customOptionsJson.value = Object.keys(customOptions).length ? JSON.stringify(customOptions, null, 2) : '';
+    renderBackendOptions();
+  }
+
+  function buildPersistenceCommand() {
+    var backend = els.storageBackend.value;
+    var options = {};
+    var ttl = els.storageDefaultTtl.value.trim();
+
+    if (ttl) {
+      options.default_ttl = Number(ttl);
+      if (!Number.isFinite(options.default_ttl))
+        throw new Error('Default TTL must be a number');
+    }
+
+    if (backend === 'sqlite') {
+      var filename = els.sqliteFilename.value.trim();
+      if (filename)
+        options.filename = filename;
+    }
+    else if (backend === 'redis') {
+      var url = els.redisUrl.value.trim();
+      var prefix = els.redisPrefix.value.trim();
+      if (url)
+        options.url = url;
+      if (prefix)
+        options.prefix = prefix;
+    }
+    else if (backend === 'custom') {
+      var modulePath = els.customModule.value.trim();
+      if (!modulePath)
+        throw new Error('Custom store module path is required');
+
+      var raw = els.customOptionsJson.value.trim();
+      if (raw) {
+        try {
+          Object.assign(options, JSON.parse(raw));
+        }
+        catch (err) {
+          throw new Error('Custom storage_options JSON is invalid');
+        }
+      }
+      options.module = modulePath;
+    }
+
+    return {
+      command: 'set_persistence',
+      storage: backend,
+      storage_options: options
+    };
+  }
+
   async function refreshSettings() {
     var response = await managementCommand({command: 'get'});
     setSettings(response.settings);
@@ -345,6 +450,14 @@
 
   els.showSettingsBtn.addEventListener('click', function () {
     handle(refreshSettings);
+  });
+
+  els.mainTabBtn.addEventListener('click', function () {
+    setActiveTab('main');
+  });
+
+  els.persistenceTabBtn.addEventListener('click', function () {
+    setActiveTab('persistence');
   });
 
   els.refreshRealmsBtn.addEventListener('click', function () {
@@ -441,6 +554,21 @@
     });
   });
 
+  els.refreshPersistenceBtn.addEventListener('click', function () {
+    handle(refreshSettings);
+  });
+
+  els.storageBackend.addEventListener('change', renderBackendOptions);
+
+  els.persistenceForm.addEventListener('submit', function (event) {
+    event.preventDefault();
+    handle(async function () {
+      var response = await managementCommand(buildPersistenceCommand());
+      setSettings(response.settings);
+      setStatus('Persistence updated to ' + response.settings.persistence.storage);
+    });
+  });
+
   var savedUrl = window.localStorage.getItem('tyoMqManagerUrl');
   if (savedUrl)
     els.serverUrl.value = savedUrl;
@@ -457,6 +585,9 @@
   if (savedRealmFilter)
     els.requestRealmCustom.value = savedRealmFilter;
   renderRealmFilter([]);
+  renderPersistence();
+
+  setActiveTab(window.localStorage.getItem('tyoMqManagerActiveTab') || 'main');
 
   function saveServerUrl() {
     var serverUrl = els.serverUrl.value.trim();
