@@ -29,73 +29,139 @@
         <button id="show-settings-btn" type="button">Refresh</button>
       </section>
 
-      <section class="grid">
-        <div class="panel">
-          <div class="section-heading">
-            <h2>Realms</h2>
-            <button id="refresh-realms-btn" type="button">Refresh</button>
+      <nav class="tabs" aria-label="Manager sections">
+        <button id="main-tab-btn" class="tab-button active" type="button" data-tab="main">Main</button>
+        <button id="persistence-tab-btn" class="tab-button" type="button" data-tab="persistence">Persistence</button>
+      </nav>
+
+      <div id="main-tab" class="tab-panel active">
+        <section class="grid">
+          <div class="panel">
+            <div class="section-heading">
+              <h2>Realms</h2>
+              <button id="refresh-realms-btn" type="button">Refresh</button>
+            </div>
+
+            <form id="add-realm-form" class="inline-form">
+              <input id="new-realm" type="text" placeholder="realm name" autocomplete="off">
+              <label class="check">
+                <input id="new-realm-required" type="checkbox" checked>
+                Require auth
+              </label>
+              <button type="submit">Add</button>
+            </form>
+
+            <form id="rename-realm-form" class="inline-form">
+              <input id="rename-from" type="text" placeholder="current realm" autocomplete="off">
+              <input id="rename-to" type="text" placeholder="new realm" autocomplete="off">
+              <button type="submit">Rename</button>
+            </form>
+
+            <div id="realms-list" class="list empty">No realms loaded</div>
           </div>
 
-          <form id="add-realm-form" class="inline-form">
-            <input id="new-realm" type="text" placeholder="realm name" autocomplete="off">
-            <label class="check">
-              <input id="new-realm-required" type="checkbox" checked>
-              Require auth
-            </label>
-            <button type="submit">Add</button>
-          </form>
+          <div class="panel">
+            <div class="section-heading">
+              <h2>Authorization Requests</h2>
+              <div class="button-group">
+                <button id="refresh-request-btn" class="secondary" type="button">Refresh</button>
+                <button id="next-request-btn" type="button">Next</button>
+              </div>
+            </div>
 
-          <form id="rename-realm-form" class="inline-form">
-            <input id="rename-from" type="text" placeholder="current realm" autocomplete="off">
-            <input id="rename-to" type="text" placeholder="new realm" autocomplete="off">
-            <button type="submit">Rename</button>
-          </form>
+            <div class="field">
+              <label for="request-realm-filter">Realm filter</label>
+              <select id="request-realm-filter">
+                <option value="">Any realm</option>
+              </select>
+              <input id="request-realm-custom" class="hidden-field" type="text" placeholder="Custom realm" autocomplete="off">
+            </div>
 
-          <div id="realms-list" class="list empty">No realms loaded</div>
-        </div>
+            <div id="request-card" class="request-card empty">No pending request loaded</div>
 
-        <div class="panel">
-          <div class="section-heading">
-            <h2>Authorization Requests</h2>
-            <div class="button-group">
-              <button id="refresh-request-btn" class="secondary" type="button">Refresh</button>
-              <button id="next-request-btn" type="button">Next</button>
+            <div class="decision-row">
+              <select id="approve-role">
+                <option value="both">both</option>
+                <option value="producer">producer</option>
+                <option value="consumer">consumer</option>
+              </select>
+              <button id="approve-request-btn" type="button">Approve</button>
+            </div>
+
+            <div class="decision-row">
+              <input id="reject-reason" type="text" placeholder="Reject reason" autocomplete="off">
+              <button id="reject-request-btn" type="button">Reject</button>
             </div>
           </div>
+        </section>
 
-          <div class="field">
-            <label for="request-realm-filter">Realm filter</label>
-            <select id="request-realm-filter">
-              <option value="">Any realm</option>
-            </select>
-            <input id="request-realm-custom" class="hidden-field" type="text" placeholder="Custom realm" autocomplete="off">
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Settings</h2>
+            <button id="copy-settings-btn" type="button">Copy</button>
+          </div>
+          <pre id="settings-output">{}</pre>
+        </section>
+      </div>
+
+      <div id="persistence-tab" class="tab-panel">
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Persistence</h2>
+            <button id="refresh-persistence-btn" type="button">Refresh</button>
           </div>
 
-          <div id="request-card" class="request-card empty">No pending request loaded</div>
+          <form id="persistence-form" class="persistence-form">
+            <div class="field">
+              <label for="storage-backend">Storage backend</label>
+              <select id="storage-backend">
+                <option value="memory">memory</option>
+                <option value="sqlite">sqlite</option>
+                <option value="redis">redis</option>
+                <option value="custom">custom store</option>
+              </select>
+            </div>
 
-          <div class="decision-row">
-            <select id="approve-role">
-              <option value="both">both</option>
-              <option value="producer">producer</option>
-              <option value="consumer">consumer</option>
-            </select>
-            <button id="approve-request-btn" type="button">Approve</button>
-          </div>
+            <div class="field">
+              <label for="storage-default-ttl">Default TTL seconds</label>
+              <input id="storage-default-ttl" type="number" min="0" step="1" placeholder="86400">
+            </div>
 
-          <div class="decision-row">
-            <input id="reject-reason" type="text" placeholder="Reject reason" autocomplete="off">
-            <button id="reject-request-btn" type="button">Reject</button>
-          </div>
-        </div>
-      </section>
+            <div id="sqlite-options" class="backend-options">
+              <div class="field">
+                <label for="sqlite-filename">SQLite filename</label>
+                <input id="sqlite-filename" type="text" placeholder="/data/tyo-mq.sqlite" autocomplete="off">
+              </div>
+            </div>
 
-      <section class="panel">
-        <div class="section-heading">
-          <h2>Auth Settings</h2>
-          <button id="copy-settings-btn" type="button">Copy</button>
-        </div>
-        <pre id="settings-output">{}</pre>
-      </section>
+            <div id="redis-options" class="backend-options">
+              <div class="field">
+                <label for="redis-url">Redis URL</label>
+                <input id="redis-url" type="text" placeholder="redis://redis:6379/0" autocomplete="off">
+              </div>
+              <div class="field">
+                <label for="redis-prefix">Redis key prefix</label>
+                <input id="redis-prefix" type="text" placeholder="tyo-mq" autocomplete="off">
+              </div>
+            </div>
+
+            <div id="custom-options" class="backend-options">
+              <div class="field">
+                <label for="custom-module">Custom store module path</label>
+                <input id="custom-module" type="text" placeholder="./my-store.js" autocomplete="off">
+              </div>
+              <div class="field full">
+                <label for="custom-options-json">Custom storage_options JSON</label>
+                <textarea id="custom-options-json" rows="8" spellcheck="false" placeholder="{ }"></textarea>
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button id="save-persistence-btn" type="submit">Apply persistence</button>
+            </div>
+          </form>
+        </section>
+      </div>
     </main>
 
     <script src="tyo-mq-client.js"></script>
