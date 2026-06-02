@@ -120,6 +120,23 @@ queued messages in order.
 Non-durable subscriptions keep the original behavior: messages published while
 the consumer is offline are lost.
 
+## Guaranteed Messages
+
+Durability can also be requested by the producer for one important message:
+
+```js
+producer.produce('event-name', data, {guaranteed: true});
+```
+
+When `guaranteed` is true, the server stores the message for matching offline
+consumers even if their subscription was not marked durable. The consumer still
+needs to reconnect with the same name or `consumer_id` and subscribe to the same
+producer/event pair for replay.
+
+Equivalent aliases accepted by the server are `guaranteed_delivery`,
+`guaranteedDelivery`, `durable`, `delivery: 'guaranteed'`, and
+`delivery_mode: 'guaranteed'`.
+
 ## Message TTL
 
 Producers can set a TTL per message:
