@@ -419,6 +419,17 @@
     setStatus('Auth settings loaded');
   }
 
+  async function connectManager() {
+    els.connectBtn.disabled = true;
+    try {
+      await refreshSettings();
+      setStatus('Connected. Admin signature accepted.');
+    }
+    finally {
+      els.connectBtn.disabled = false;
+    }
+  }
+
   async function setRealmAuth(realm, required) {
     var response = await managementCommand({
       command: 'set_realm_auth',
@@ -442,10 +453,7 @@
   }
 
   els.connectBtn.addEventListener('click', function () {
-    handle(async function () {
-      await refreshSettings();
-      setStatus('Connected. Admin signature accepted.');
-    });
+    handle(connectManager);
   });
 
   els.showSettingsBtn.addEventListener('click', function () {
@@ -588,6 +596,11 @@
   renderPersistence();
 
   setActiveTab(window.localStorage.getItem('tyoMqManagerActiveTab') || 'main');
+
+  if (els.serverUrl.value.trim() && els.adminToken.value.trim()) {
+    setStatus('Connecting with saved credentials...');
+    handle(connectManager);
+  }
 
   function saveServerUrl() {
     var serverUrl = els.serverUrl.value.trim();
