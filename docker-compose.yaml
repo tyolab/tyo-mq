@@ -1,6 +1,6 @@
 services:
   tyo-mq:
-    image: tyolab/tyo-mq:0.4.3
+    image: tyolab/tyo-mq:latest
     ports:
       - "${TYO_MQ_PORT:-17352}:17352"
     environment:
@@ -18,7 +18,7 @@ services:
       - tyo-apps-network
 
   manager:
-    image: tyolab/tyo-mq:0.4.3
+    image: tyolab/tyo-mq:latest
     profiles:
       - tools
     depends_on:
