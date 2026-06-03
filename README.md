@@ -68,18 +68,19 @@ mq.createConsumer()
 
 ## Durable Delivery and ACK
 
-Durable subscriptions store matching messages while the consumer is offline. With
-the current client library, durable subscriptions also enable delivery ACKs by
-default: the server includes a `msgId`, waits for `ACK {msgId}`, retries on
-timeout, and moves exhausted messages to the realm DLQ. Older clients that do
-not advertise ACK support keep the Phase 2 behavior: replayed durable messages
-are removed immediately after delivery so they do not get stuck forever.
+Durable subscriptions store matching messages while the consumer is offline. ACK
+is not required by default: `durable: true` alone keeps the Phase 2 behavior,
+where replayed durable messages are removed immediately after delivery. When a
+subscription explicitly asks for ACK with `ack`, `require_ack`, or `manual_ack`,
+the server includes a `msgId`, waits for `ACK {msgId}`, retries on timeout, and
+moves exhausted messages to the realm DLQ.
 
 ```javascript
 consumer.subscribe(producer.name, 'task', function (data) {
     // auto-ACK after the handler resolves
 }, {
     durable: true,
+    ack: true,
     retry: { max_attempts: 3, delay: '5s', backoff: 'exponential' }
 });
 
