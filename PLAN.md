@@ -1,6 +1,6 @@
 # tyo-mq — Improvement Plan
 
-Current version: 0.3.x  
+Current version: 0.6.x
 Based on: socket.io, Node.js
 
 ---
@@ -181,6 +181,10 @@ message for retry.
 
 Client-side convenience — consumer library handles ACK automatically unless
 `manual_ack: true` is set.
+
+ACK is negotiated per subscription for backwards compatibility. New durable
+clients advertise ACK support; lower-version clients that omit the flag keep the
+Phase 2 immediate-ack replay behavior.
 
 ### 3.2 Retry Policy
 
