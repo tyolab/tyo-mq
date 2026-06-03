@@ -1053,13 +1053,24 @@ function Subscriber (name, options) {
              */
     
             function sendSubscriptionMessage () {
+                var ackEnabled = !!(subscribeOptions.ack
+                    || subscribeOptions.require_ack
+                    || subscribeOptions.requireAck
+                    || subscribeOptions.manual_ack
+                    || subscribeOptions.manualAck
+                    || subscribeOptions.durable);
+
                 self.sendMessage('SUBSCRIBE', {
                     event:eventStr,
                     producer: who,
                     consumer:self.name,
                     scope: scope,
                     durable: !!subscribeOptions.durable,
-                    consumer_id: subscribeOptions.consumer_id || subscribeOptions.consumerId || self.consumer_id
+                    consumer_id: subscribeOptions.consumer_id || subscribeOptions.consumerId || self.consumer_id,
+                    ack: ackEnabled,
+                    manual_ack: !!(subscribeOptions.manual_ack || subscribeOptions.manualAck),
+                    ack_timeout: subscribeOptions.ack_timeout || subscribeOptions.ackTimeout,
+                    retry: subscribeOptions.retry || null
                 });
             }
     
@@ -1082,9 +1093,29 @@ function Subscriber (name, options) {
                 var message = obj.message;
     
                 var from = obj.from || message.from;
+                var msgId = obj.msgId || obj.msg_id;
+                var manualAck = !!(subscribeOptions.manual_ack || subscribeOptions.manualAck);
+                var acked = false;
+                function ack(callback) {
+                    if (!msgId || acked) {
+                        if (callback)
+                            callback();
+                        return;
+                    }
+                    acked = true;
+                    self.sendMessage('ACK', {msgId: msgId}, null, callback);
+                }
     
                 //if (intendedEvent === targetEventStr) {
-                    onConsumeCallback(message, from);
+                    var result = onConsumeCallback(message, from, ack, obj);
+                    if (msgId && !manualAck) {
+                        Promise.resolve(result).then(function () {
+                            ack();
+                        }).catch(function (err) {
+                            if (self.logger && self.logger.warn)
+                                self.logger.warn('Message handler rejected before ACK: ' + err.message);
+                        });
+                    }
                 //}
             };
     
