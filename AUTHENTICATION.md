@@ -123,13 +123,13 @@ Unauthenticated sockets may connect and may submit authorization requests.
 Protected producer/consumer actions require `AUTH_OK` unless the target realm is
 configured as open.
 
-## Admin Token Without Sending It
+## Signed Manager Proofs
 
-Managers should not send `TYO_MQ_ADMIN_TOKEN` directly for approval actions.
-Instead, the manager signs each action locally with HMAC-SHA256:
+Managers should not send shared secrets directly for approval actions. Instead,
+the manager signs each action locally with HMAC-SHA256:
 
 ```text
-signature = HMAC_SHA256(admin_token, action + "\n" + timestamp + "\n" + nonce + "\n" + stable_json(body))
+signature = HMAC_SHA256(manager_secret, action + "\n" + timestamp + "\n" + nonce + "\n" + stable_json(body))
 ```
 
 The manager sends:
@@ -145,8 +145,46 @@ The manager sends:
 }
 ```
 
-The server verifies the signature against its configured admin token, rejects
-expired proofs, and rejects reused nonces.
+The server rejects expired proofs and reused nonces.
+
+Two secret scopes are supported:
+
+- Global admin token: configured as `auth.tokens[]` with `realm: "*"` and
+  `role: "admin"`. This can sign all management operations.
+- Realm manager key: configured on one realm as `auth.realms[realm].manager_key`.
+  This can sign only `AUTHORIZATION_NEXT` and `AUTHORIZATION_DECIDE` for that
+  realm.
+
+Realm manager keys are intentionally narrower than the global admin token. They
+let an org operator approve or reject client enrollment requests without
+receiving server-wide admin power.
+
+Example realm manager key config:
+
+```json
+{
+  "auth": {
+    "enabled": true,
+    "realms": {
+      "apps:tyoman:myorg": {
+        "required": true,
+        "manager_key": "realm-manager-shared-secret"
+      }
+    }
+  }
+}
+```
+
+The server never returns raw `manager_key` values in management responses. A
+configured key is reported as `manager_key_configured: true`.
+
+Realm manager scope rules:
+
+- `AUTHORIZATION_NEXT` signed with a realm manager key must include
+  `body.realm`, and it can only read pending requests for that realm.
+- `AUTHORIZATION_DECIDE` signed with a realm manager key is checked against the
+  stored realm of the pending request, not against a caller-supplied realm.
+- `AUTH_MANAGEMENT_COMMAND` always requires the global admin token.
 
 ## Authorization Request Flow
 
@@ -213,8 +251,14 @@ Library:
 
 ```javascript
 var next = await Authorization.nextAuthorizationRequest(
-    process.env.TYO_MQ_ADMIN_TOKEN,
+    process.env.TYO_MQ_REALM_MANAGER_KEY,
     { realm: 'tyolab' }
+);
+
+// Equivalent clearer helper:
+var next = await Authorization.nextRealmAuthorizationRequest(
+    process.env.TYO_MQ_REALM_MANAGER_KEY,
+    'tyolab'
 );
 ```
 
@@ -246,7 +290,17 @@ Library:
 
 ```javascript
 await Authorization.decideAuthorizationRequest(
-    process.env.TYO_MQ_ADMIN_TOKEN,
+    process.env.TYO_MQ_REALM_MANAGER_KEY,
+    {
+        request_id: next.request.request_id,
+        approved: true,
+        role: 'consumer'
+    }
+);
+
+// Equivalent clearer helper:
+await Authorization.decideRealmAuthorizationRequest(
+    process.env.TYO_MQ_REALM_MANAGER_KEY,
     {
         request_id: next.request.request_id,
         approved: true,
@@ -265,18 +319,19 @@ AUTHORIZATION_DECIDE {
 }
 ```
 
-When approved, the requested client token is added to the server's in-memory
-token list:
+When approved, the requested client token is added to the server's token list:
 
 ```javascript
 { token: client_token, realm, role }
 ```
 
 The client can then authenticate with normal `AUTHENTICATION { token }`.
+If the server is started with `TYO_MQ_SETTINGS_FILE`, the approved token is
+also written to that settings file so it survives server/container restarts.
 
 ## Useful Commands
 
-Open the interactive manager:
+Open the interactive server manager:
 
 ```bash
 npm run manager
@@ -286,6 +341,18 @@ The manager sends signed commands to the running server. It can add/rename
 realms, enable or disable auth globally or per realm, verify the admin token,
 and approve or reject pending authorization requests. The admin token is used
 locally to sign commands and is never sent directly.
+
+Set or rotate a realm manager key with a global admin signed management command:
+
+```json
+{
+  "command": "set_realm_manager_key",
+  "realm": "tyolab",
+  "manager_key": "new-realm-manager-secret"
+}
+```
+
+Use `manager_key: null` or omit `manager_key` to remove the key.
 
 If the server is started with `TYO_MQ_SETTINGS_FILE`, management changes are
 persisted to that file. In Docker, mount that file or its parent directory as a
@@ -311,15 +378,48 @@ Submit a request:
 npm run auth:request -- --realm tyolab --role consumer
 ```
 
-Approve a request:
+Approve a request with a realm manager key:
+
+```bash
+TYO_MQ_REALM_MANAGER_KEY="realm-manager-shared-secret" \
+  npm run auth:manager -- next --realm tyolab
+
+TYO_MQ_REALM_MANAGER_KEY="realm-manager-shared-secret" \
+  npm run auth:manager -- approve <request_id> --role consumer
+```
+
+Approve a request with the global admin token:
 
 ```bash
 npm run auth:manager -- approve <request_id> --role consumer
 ```
 
+Revoke an approved client token with the interactive manager:
+
+```bash
+npm run manager
+# choose "Revoke authorized client token"
+```
+
+The signed management command is:
+
+```json
+{
+  "command": "revoke_token",
+  "realm": "tyolab",
+  "client_id": "client-01"
+}
+```
+
+You can also revoke by `token_hash`, which is available in manager settings
+responses. Raw token values are not shown by the manager UI.
+
 ## Current Limitations
 
 - Authorization requests are in-memory only.
-- Approved request tokens are in-memory only unless also persisted externally.
+- Approved request tokens are persisted only when the server has a settings file
+  configured with `TYO_MQ_SETTINGS_FILE`; otherwise they are runtime-only.
+- Revoked tokens are removed from the settings file when `TYO_MQ_SETTINGS_FILE`
+  is configured.
 - Manager nonce replay protection is in-memory only.
 - This phase does not include a REST management API.

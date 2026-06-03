@@ -381,6 +381,199 @@ test('manager signs authorization approval without sending admin token', async (
     }
 });
 
+test('realm manager key approves only its own realm authorization requests', async () => {
+    const adminToken = 'secret-admin';
+    const alphaManagerKey = 'alpha-manager-key';
+    const betaManagerKey = 'beta-manager-key';
+    const alphaClientToken = 'alpha-requested-client-token';
+    const betaClientToken = 'beta-requested-client-token';
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            realms: {
+                alpha: {
+                    required: true,
+                    manager_key: alphaManagerKey
+                },
+                beta: {
+                    required: true,
+                    manager_key: betaManagerKey
+                }
+            },
+            tokens: [
+                { token: adminToken, realm: '*', role: 'admin' }
+            ]
+        }
+    });
+    const options = {host: '127.0.0.1', port: authServer.port, protocol: 'http'};
+
+    try {
+        const alphaSubmitted = await Authorization.submitAuthorizationRequest({
+            realm: 'alpha',
+            role: 'consumer',
+            client_id: 'alpha-client',
+            client_name: 'Alpha Client',
+            client_token: alphaClientToken
+        }, options);
+        const betaSubmitted = await Authorization.submitAuthorizationRequest({
+            realm: 'beta',
+            role: 'consumer',
+            client_id: 'beta-client',
+            client_name: 'Beta Client',
+            client_token: betaClientToken
+        }, options);
+
+        const hidden = await Authorization.authManagementCommand(adminToken, {
+            command: 'get'
+        }, options);
+        assert.strictEqual(hidden.settings.realms.alpha.manager_key, undefined);
+        assert.strictEqual(hidden.settings.realms.alpha.manager_key_configured, true);
+
+        const crossNext = await Authorization.nextAuthorizationRequest(alphaManagerKey, {
+            realm: 'beta'
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(crossNext.code, 401);
+
+        const unscopedNext = await Authorization.nextAuthorizationRequest(alphaManagerKey, {}, options)
+            .then(() => null)
+            .catch(err => err.response);
+        assert.strictEqual(unscopedNext.code, 401);
+
+        const alphaNext = await Authorization.nextRealmAuthorizationRequest(alphaManagerKey, 'alpha', options);
+        assert.strictEqual(alphaNext.request.request_id, alphaSubmitted.request_id);
+        assert.strictEqual(alphaNext.request.realm, 'alpha');
+
+        const crossDecision = await Authorization.decideRealmAuthorizationRequest(alphaManagerKey, {
+            request_id: betaSubmitted.request_id,
+            approved: true,
+            role: 'consumer'
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(crossDecision.code, 401);
+
+        const management = await Authorization.authManagementCommand(alphaManagerKey, {
+            command: 'get'
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(management.code, 401);
+
+        const alphaDecision = await Authorization.decideRealmAuthorizationRequest(alphaManagerKey, {
+            request_id: alphaSubmitted.request_id,
+            approved: true,
+            role: 'consumer'
+        }, options);
+        assert.strictEqual(alphaDecision.request.status, 'approved');
+
+        const client = new Factory({
+            host: '127.0.0.1',
+            port: authServer.port,
+            protocol: 'http',
+            auth: {token: alphaClientToken}
+        });
+        const consumer = await client.createConsumer('alpha-managed-client');
+        assert.deepStrictEqual(consumer.authInfo, {realm: 'alpha', role: 'consumer'});
+        consumer.disconnect();
+    } finally {
+        await authServer.close();
+    }
+});
+
+test('approved authorization token persists to settings file when configured', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tyo-mq-settings-'));
+    const settingsFile = path.join(tmpDir, 'settings.json');
+    const adminToken = 'secret-admin';
+    const clientToken = 'persistent-client-token';
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            tokens: [
+                { token: adminToken, realm: '*', role: 'admin' }
+            ]
+        }
+    });
+    const options = {host: '127.0.0.1', port: authServer.port, protocol: 'http'};
+
+    try {
+        authServer.server.loadSettings(settingsFile);
+
+        const submitted = await Authorization.submitAuthorizationRequest({
+            realm: 'managed-persist-realm',
+            role: 'consumer',
+            client_id: 'managed-client-persist',
+            client_name: 'Managed Persistent Client',
+            client_token: clientToken
+        }, options);
+
+        await Authorization.decideAuthorizationRequest(adminToken, {
+            request_id: submitted.request_id,
+            approved: true,
+            role: 'both'
+        }, options);
+
+        const saved = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+        const persisted = saved.auth.tokens.find(token => token.token === clientToken);
+        assert.ok(persisted, 'approved client token should be written to settings file');
+        assert.strictEqual(persisted.realm, 'managed-persist-realm');
+        assert.strictEqual(persisted.role, 'both');
+        assert.strictEqual(persisted.client_id, 'managed-client-persist');
+        assert.strictEqual(persisted.client_name, 'Managed Persistent Client');
+        assert.ok(persisted.approved_at);
+    } finally {
+        await authServer.close();
+        fs.rmSync(tmpDir, {recursive: true, force: true});
+    }
+});
+
+test('manager revokes authorized token and persists settings file', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tyo-mq-settings-'));
+    const settingsFile = path.join(tmpDir, 'settings.json');
+    const adminToken = 'secret-admin';
+    const clientToken = 'client-token-to-revoke';
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            tokens: [
+                { token: adminToken, realm: '*', role: 'admin' },
+                {
+                    token: clientToken,
+                    realm: 'managed-revoke-realm',
+                    role: 'both',
+                    client_id: 'managed-client-revoke',
+                    client_name: 'Managed Revoked Client'
+                }
+            ]
+        }
+    });
+    const options = {host: '127.0.0.1', port: authServer.port, protocol: 'http'};
+    const ioClient = require('socket.io-client');
+    let socket;
+
+    try {
+        authServer.server.loadSettings(settingsFile);
+
+        const response = await Authorization.authManagementCommand(adminToken, {
+            command: 'revoke_token',
+            realm: 'managed-revoke-realm',
+            client_id: 'managed-client-revoke'
+        }, options);
+
+        assert.strictEqual(response.revoked.length, 1);
+        assert.strictEqual(response.revoked[0].client_id, 'managed-client-revoke');
+        assert.ok(!response.settings.tokens.some(token => token.client_id === 'managed-client-revoke'));
+
+        const saved = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+        assert.ok(!saved.auth.tokens.some(token => token.token === clientToken));
+
+        socket = ioClient(`http://127.0.0.1:${authServer.port}`, { transports: ['websocket'] });
+        await waitFor(socket, 'connect');
+        socket.emit('AUTHENTICATION', {token: clientToken});
+        const fail = await waitFor(socket, 'AUTH_FAIL');
+        assert.strictEqual(fail.code, 401);
+    } finally {
+        if (socket) socket.disconnect();
+        await authServer.close();
+        fs.rmSync(tmpDir, {recursive: true, force: true});
+    }
+});
+
 test('same client authorization request keeps only the latest pending copy', async () => {
     const adminToken = 'secret-admin';
     const authServer = await startServer({
