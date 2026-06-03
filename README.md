@@ -5,7 +5,7 @@ TYO-MQ is a distributed messaging (pub/sub) service with socket.io.
 
 [![NPM](https://nodei.co/npm/tyo-mq.png?stars&downloads)](https://nodei.co/npm/tyo-mq/)
 
-At the moment the message queuing is not implemented yet, which means all messages are sent instantly without confirmation of message delivery or recieving. So message subcriber(s) will need to be online in order to recieve the message.
+TYO-MQ supports fire-and-forget pub/sub by default, plus opt-in durable delivery with ACK, retry, and dead-letter handling for messages that must survive disconnects or failed consumers.
 
 ## Installation
     npm install tyo-mq
@@ -65,6 +65,40 @@ mq.createConsumer()
     });
 });
 ```
+
+## Durable Delivery and ACK
+
+Durable subscriptions store matching messages while the consumer is offline. With
+the current client library, durable subscriptions also enable delivery ACKs by
+default: the server includes a `msgId`, waits for `ACK {msgId}`, retries on
+timeout, and moves exhausted messages to the realm DLQ. Older clients that do
+not advertise ACK support keep the Phase 2 behavior: replayed durable messages
+are removed immediately after delivery so they do not get stuck forever.
+
+```javascript
+consumer.subscribe(producer.name, 'task', function (data) {
+    // auto-ACK after the handler resolves
+}, {
+    durable: true,
+    retry: { max_attempts: 3, delay: '5s', backoff: 'exponential' }
+});
+
+consumer.subscribe(producer.name, 'task', function (data, from, ack, raw) {
+    doWork(data).then(function () {
+        ack();
+    });
+}, {
+    durable: true,
+    manual_ack: true,
+    ack_timeout: '30s',
+    retry: { max_attempts: 5, delay: '2s' }
+});
+```
+
+The storage backends expose `deadLetter(msgId, reason)`, `listDlq(realm)`, and
+`discardDlq(msgId)` for management tooling. The in-memory backend keeps DLQ
+entries until process exit; SQLite and Redis keep them in their configured
+stores.
 
 ## Demo
 
