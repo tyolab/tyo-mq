@@ -56,7 +56,8 @@ The recommended organization layer can be represented like this:
     },
     "realms": {
       "org:acme": {
-        "required": true
+        "required": true,
+        "manager_key": "acme-realm-manager-secret"
       }
     },
     "tokens": [
@@ -74,7 +75,9 @@ The recommended organization layer can be represented like this:
 ```
 
 `auth.orgs` is the friendly management layer. `auth.realms` and `auth.tokens`
-remain the enforcement layer.
+remain the enforcement layer. A realm `manager_key` lets an org operator approve
+or reject authorization requests for that realm without receiving the global
+`realm: "*"` admin token.
 
 ## Authorization Requests
 
@@ -109,11 +112,17 @@ Managers should operate on organizations:
 - create org
 - rename org display name
 - enable or disable org auth
+- rotate org enrollment manager key
 - list org clients
 - approve or reject client authorization requests for an org
 
 Raw realm operations should remain available for admin/debug workflows, but
 they should not be the normal user-facing interface.
+
+Org operators should receive only the manager key for their org's realm. That
+key can sign `AUTHORIZATION_NEXT` and `AUTHORIZATION_DECIDE` for the mapped
+realm, but it cannot create realms, change server settings, revoke tokens, or
+approve requests in other realms.
 
 ## Multiple Realms Per Organization
 
@@ -133,6 +142,122 @@ default is:
 one organization = one realm
 ```
 
+## Inter-Realm Communication
+
+Realms are isolated by default. A normal socket authenticates into one realm,
+and it cannot directly publish into or subscribe from another realm. This is a
+security boundary, not just a naming convention.
+
+Use one of these patterns when two realms need to exchange messages.
+
+### Bridge Client
+
+The recommended current solution is a bridge service with two authenticated
+connections:
+
+- a consumer token for the source realm
+- a producer token for the target realm
+
+Example:
+
+```js
+const Factory = require('tyo-mq').Factory;
+
+const source = new Factory({
+  host: 'mq.tyo.com.au',
+  port: 443,
+  protocol: 'https',
+  auth: {token: process.env.SOURCE_REALM_CONSUMER_TOKEN}
+});
+
+const target = new Factory({
+  host: 'mq.tyo.com.au',
+  port: 443,
+  protocol: 'https',
+  auth: {token: process.env.TARGET_REALM_PRODUCER_TOKEN}
+});
+
+async function main() {
+  const consumer = await source.createConsumer('realm-bridge-a-to-b');
+  const producer = await target.createProducer('realm-bridge-a-to-b');
+
+  consumer.subscribe('source-producer', 'event-name', (data, from) => {
+    producer.produce('event-name', {
+      source_realm: 'org:source',
+      source_producer: from,
+      payload: data
+    }, {guaranteed: true});
+  }, {durable: true});
+}
+
+main().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
+```
+
+This keeps authorization explicit. The bridge can only read from realms and
+write to realms for which it has tokens. It is also easy to audit because each
+bridge should have a clear source realm, target realm, and event mapping.
+
+Use durable subscriptions and guaranteed produce options for important
+cross-realm messages:
+
+```js
+consumer.subscribe('producer', 'event', handler, {durable: true});
+producer.produce('event', data, {guaranteed: true});
+```
+
+This gives offline replay under the current persistence model. End-to-end
+delivery acknowledgement, retry, and dead-letter handling belong to the
+reliability phase.
+
+### Shared Integration Realm
+
+For many-to-many integrations, create a dedicated integration realm:
+
+```text
+integration:tyoman
+integration:billing
+integration:fleet
+```
+
+Applications publish integration events into that realm, and approved clients
+consume only the events they are allowed to see. This avoids granting direct
+realm-to-realm access and keeps integration traffic separate from internal
+organization traffic.
+
+Use this pattern when several org realms need a common exchange point, for
+example:
+
+```text
+org:acme           -> integration:tyoman
+org:beta           -> integration:tyoman
+integration:tyoman -> org:tyolab:ops
+```
+
+### Server-Managed Routes
+
+A future server-native route feature can make bridge behavior declarative:
+
+```json
+{
+  "from_realm": "org:acme",
+  "to_realm": "org:tyolab:ops",
+  "producer": "orders",
+  "event": "created",
+  "target_event": "acme.orders.created",
+  "durable": true
+}
+```
+
+This should be admin-managed, audited, and default-deny. Clients should not get
+a free-form `target_realm` publish option because that weakens the isolation
+model.
+
+Do not use `realm: "*"` as an integration bus. The `*` realm is for
+super-admin management and monitoring only.
+
 ## Super Admin
 
 Admin tokens use the special realm:
@@ -143,4 +268,3 @@ Admin tokens use the special realm:
 
 An admin in realm `*` can manage realms, organizations, and authorization
 requests. Normal clients should never use the `*` realm.
-
