@@ -1057,8 +1057,7 @@ function Subscriber (name, options) {
                     || subscribeOptions.require_ack
                     || subscribeOptions.requireAck
                     || subscribeOptions.manual_ack
-                    || subscribeOptions.manualAck
-                    || subscribeOptions.durable);
+                    || subscribeOptions.manualAck);
 
                 self.sendMessage('SUBSCRIBE', {
                     event:eventStr,

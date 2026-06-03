@@ -179,11 +179,12 @@ consumer → server: ACK { msgId }
 If no ACK within `ack_timeout` (default 30 s), server re-enqueues the
 message for retry.
 
-Client-side convenience — consumer library handles ACK automatically unless
-`manual_ack: true` is set.
+Client-side convenience — when ACK is requested, the consumer library handles
+ACK automatically unless `manual_ack: true` is set.
 
-ACK is negotiated per subscription for backwards compatibility. New durable
-clients advertise ACK support; lower-version clients that omit the flag keep the
+ACK is negotiated per subscription for backwards compatibility. Durable delivery
+does not require ACK by default; clients must explicitly advertise ACK support
+with `ack`, `require_ack`, or `manual_ack`. Clients that omit the flag keep the
 Phase 2 immediate-ack replay behavior.
 
 ### 3.2 Retry Policy

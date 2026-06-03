@@ -132,7 +132,59 @@ test('legacy durable consumer without ACK capability still replays once', async 
     }
 });
 
-test('new durable consumer auto-ACKs replayed message', async () => {
+test('current durable consumer without ACK option replays once without ACK', async () => {
+    const server = await startServer({storage: 'memory'});
+    const client = clientFor(server.port);
+    const producerName = 'phase3-default-producer';
+    const consumerName = 'phase3-default-consumer';
+    const eventName = 'phase3-default-event';
+
+    let producer;
+    let firstConsumer;
+    let secondConsumer;
+    let thirdConsumer;
+    try {
+        producer = await client.createProducer(producerName);
+        firstConsumer = await client.createConsumer(consumerName);
+        firstConsumer.subscribe(producer.name, eventName, function () {}, {durable: true});
+        await delay(300);
+
+        firstConsumer.disconnect();
+        await delay(300);
+        producer.produce(eventName, 'default durable message');
+        await delay(300);
+
+        secondConsumer = await client.createConsumer(consumerName);
+        const received = await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('default durable replay timeout')), 4000);
+            secondConsumer.subscribe(producer.name, eventName, (data, from, ack, raw) => {
+                clearTimeout(timer);
+                resolve({data, raw});
+            }, {durable: true});
+        });
+        assert.strictEqual(received.data, 'default durable message');
+        assert.strictEqual(received.raw.msgId, undefined);
+        await delay(200);
+
+        secondConsumer.disconnect();
+        await delay(300);
+        thirdConsumer = await client.createConsumer(consumerName);
+        let repeated = false;
+        thirdConsumer.subscribe(producer.name, eventName, () => {
+            repeated = true;
+        }, {durable: true});
+        await waitForNoMessage(700);
+        assert.strictEqual(repeated, false, 'default durable message should have been removed after replay');
+    } finally {
+        if (thirdConsumer) thirdConsumer.disconnect();
+        if (secondConsumer) secondConsumer.disconnect();
+        if (firstConsumer) firstConsumer.disconnect();
+        if (producer) producer.disconnect();
+        await server.close();
+    }
+});
+
+test('durable consumer with explicit ACK auto-ACKs replayed message', async () => {
     const server = await startServer({storage: 'memory'});
     const client = clientFor(server.port);
     const producerName = 'phase3-auto-producer';
@@ -157,12 +209,13 @@ test('new durable consumer auto-ACKs replayed message', async () => {
         secondConsumer = await client.createConsumer(consumerName);
         const received = await new Promise((resolve, reject) => {
             const timer = setTimeout(() => reject(new Error('auto ack replay timeout')), 4000);
-            secondConsumer.subscribe(producer.name, eventName, data => {
+            secondConsumer.subscribe(producer.name, eventName, (data, from, ack, raw) => {
                 clearTimeout(timer);
-                resolve(data);
-            }, {durable: true});
+                resolve({data, raw});
+            }, {durable: true, ack: true});
         });
-        assert.strictEqual(received, 'auto ack message');
+        assert.strictEqual(received.data, 'auto ack message');
+        assert.ok(received.raw.msgId, 'explicit ACK delivery should carry msgId');
         await delay(200);
 
         secondConsumer.disconnect();
@@ -171,7 +224,7 @@ test('new durable consumer auto-ACKs replayed message', async () => {
         let repeated = false;
         thirdConsumer.subscribe(producer.name, eventName, () => {
             repeated = true;
-        }, {durable: true});
+        }, {durable: true, ack: true});
         await waitForNoMessage(700);
         assert.strictEqual(repeated, false, 'auto-acked message should not replay again');
     } finally {
