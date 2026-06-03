@@ -29,6 +29,7 @@ function startServer(options) {
             const port = httpServer.address().port;
             resolve({
                 port,
+                server: mqServer,
                 close: () => new Promise(res => {
                     io.close(() => httpServer.close(res));
                 }),

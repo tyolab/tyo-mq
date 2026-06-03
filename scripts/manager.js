@@ -81,6 +81,8 @@ function printMenu() {
     console.log('11. Reject next authorization request');
     console.log('12. Approve request by id');
     console.log('13. Reject request by id');
+    console.log('14. Revoke authorized client token');
+    console.log('15. Set or clear realm manager key');
     console.log('0. Exit');
 }
 
@@ -181,6 +183,38 @@ async function decideById(approved) {
     await decideRequest(requestId, approved);
 }
 
+async function revokeToken() {
+    var realm = await ask('Realm (optional if using token hash): ');
+    var clientId = await ask('Client id (optional if using token hash): ');
+    var tokenHash = await ask('Token hash (optional if realm + client id provided): ');
+
+    if (!tokenHash && (!realm || !clientId))
+        return console.log('Provide either token hash, or realm + client id.');
+
+    var response = await managementCommand({
+        command: 'revoke_token',
+        realm: realm || null,
+        client_id: clientId || null,
+        token_hash: tokenHash || null
+    });
+    console.log('Revoked token(s):');
+    console.log(JSON.stringify(response.revoked || [], null, 2));
+}
+
+async function setRealmManagerKey() {
+    var realm = await ask('Realm name: ');
+    if (!realm)
+        return console.log('No realm name provided.');
+
+    var managerKey = await ask('Manager key (blank to clear): ');
+    var response = await managementCommand({
+        command: 'set_realm_manager_key',
+        realm: realm,
+        manager_key: managerKey || null
+    });
+    console.log(JSON.stringify(response.settings.realms[realm], null, 2));
+}
+
 async function handleChoice(choice) {
     if (choice === '0') return false;
     if (choice === '1') await showAuthSettings();
@@ -196,6 +230,8 @@ async function handleChoice(choice) {
     else if (choice === '11') await decideNext(false);
     else if (choice === '12') await decideById(true);
     else if (choice === '13') await decideById(false);
+    else if (choice === '14') await revokeToken();
+    else if (choice === '15') await setRealmManagerKey();
     else console.log('Unknown choice: ' + choice);
     return true;
 }

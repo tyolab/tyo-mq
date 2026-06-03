@@ -32,6 +32,8 @@
     approveRequestBtn: document.getElementById('approve-request-btn'),
     rejectReason: document.getElementById('reject-reason'),
     rejectRequestBtn: document.getElementById('reject-request-btn'),
+    refreshTokensBtn: document.getElementById('refresh-tokens-btn'),
+    tokensList: document.getElementById('tokens-list'),
     settingsOutput: document.getElementById('settings-output'),
     copySettingsBtn: document.getElementById('copy-settings-btn'),
     refreshPersistenceBtn: document.getElementById('refresh-persistence-btn'),
@@ -73,6 +75,50 @@
     var values = new Uint8Array(bytes);
     window.crypto.getRandomValues(values);
     return bytesToHex(values);
+  }
+
+  function localRealmKeyStore() {
+    var serverUrl = els.serverUrl.value.trim() || 'default';
+    return 'tyoMqManagerRealmKeys:' + serverUrl;
+  }
+
+  function loadLocalRealmKeys() {
+    try {
+      return JSON.parse(window.localStorage.getItem(localRealmKeyStore()) || '{}') || {};
+    }
+    catch (err) {
+      return {};
+    }
+  }
+
+  function getLocalRealmManagerKey(realm) {
+    return loadLocalRealmKeys()[realm] || '';
+  }
+
+  function saveLocalRealmManagerKey(realm, managerKey) {
+    var keys = loadLocalRealmKeys();
+    if (managerKey)
+      keys[realm] = managerKey;
+    else
+      delete keys[realm];
+    window.localStorage.setItem(localRealmKeyStore(), JSON.stringify(keys));
+  }
+
+  async function copyText(value) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+
+    var input = document.createElement('textarea');
+    input.value = value;
+    input.setAttribute('readonly', 'readonly');
+    input.style.position = 'fixed';
+    input.style.left = '-1000px';
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand('copy');
+    document.body.removeChild(input);
   }
 
   function signatureBase(action, body, timestamp, nonce) {
@@ -203,6 +249,7 @@
     settings = next || {};
     els.settingsOutput.textContent = JSON.stringify(settings, null, 2);
     renderRealms();
+    renderTokens();
     renderPersistence();
   }
 
@@ -229,15 +276,30 @@
 
     els.realmsList.className = 'list';
     names.forEach(function (name) {
+      var realm = realms[name] || {};
+      var required = !!realm.required;
+      var managerKeyConfigured = !!realm.manager_key_configured;
+      var localManagerKey = getLocalRealmManagerKey(name);
       var row = document.createElement('div');
       row.className = 'realm-row';
+
+      var detail = document.createElement('div');
+      detail.className = 'realm-detail';
 
       var label = document.createElement('div');
       label.className = 'realm-name';
       label.textContent = name;
 
+      var meta = document.createElement('div');
+      meta.className = 'realm-meta';
+      meta.textContent = managerKeyConfigured
+        ? (localManagerKey ? 'manager key available locally' : 'manager key configured')
+        : 'no manager key';
+
+      detail.appendChild(label);
+      detail.appendChild(meta);
+
       var pill = document.createElement('span');
-      var required = !!(realms[name] && realms[name].required);
       pill.className = required ? 'pill' : 'pill open';
       pill.textContent = required ? 'auth required' : 'open';
 
@@ -246,12 +308,48 @@
       toggle.className = 'secondary';
       toggle.textContent = required ? 'Disable auth' : 'Require auth';
       toggle.addEventListener('click', function () {
-        setRealmAuth(name, !required);
+        handle(function () {
+          return setRealmAuth(name, !required);
+        });
       });
 
-      row.appendChild(label);
+      var generate = document.createElement('button');
+      generate.type = 'button';
+      generate.textContent = managerKeyConfigured ? 'Rotate key' : 'Generate key';
+      generate.addEventListener('click', function () {
+        handle(function () {
+          return generateRealmManagerKey(name);
+        });
+      });
+
+      var copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'secondary';
+      copy.textContent = 'Copy key';
+      copy.disabled = !localManagerKey;
+      copy.addEventListener('click', function () {
+        handle(function () {
+          return copyRealmManagerKey(name);
+        });
+      });
+
+      var clear = document.createElement('button');
+      clear.type = 'button';
+      clear.className = 'secondary';
+      clear.textContent = 'Clear key';
+      clear.disabled = !managerKeyConfigured;
+      clear.addEventListener('click', function () {
+        handle(function () {
+          return clearRealmManagerKey(name);
+        });
+      });
+
+      row.appendChild(detail);
       row.appendChild(pill);
       row.appendChild(toggle);
+      row.appendChild(generate);
+      row.appendChild(copy);
+      row.appendChild(clear);
       els.realmsList.appendChild(row);
     });
   }
@@ -332,6 +430,54 @@
       dl.appendChild(dd);
     });
     els.requestCard.appendChild(dl);
+  }
+
+  function renderTokens() {
+    var tokens = (settings && settings.tokens) || [];
+    els.tokensList.innerHTML = '';
+
+    if (tokens.length === 0) {
+      els.tokensList.className = 'list empty';
+      els.tokensList.textContent = 'No authorized clients configured';
+      return;
+    }
+
+    els.tokensList.className = 'list';
+    tokens.forEach(function (token) {
+      var row = document.createElement('div');
+      row.className = 'token-row';
+
+      var detail = document.createElement('div');
+      detail.className = 'token-detail';
+
+      var title = document.createElement('div');
+      title.className = 'token-title';
+      title.textContent = token.client_name || token.client_id || token.realm || 'Token';
+
+      var meta = document.createElement('div');
+      meta.className = 'token-meta';
+      meta.textContent = [
+        token.realm || 'realm?',
+        token.role || 'role?',
+        token.client_id || 'no client id'
+      ].join(' / ');
+
+      detail.appendChild(title);
+      detail.appendChild(meta);
+
+      var revoke = document.createElement('button');
+      revoke.type = 'button';
+      revoke.className = 'danger';
+      revoke.textContent = 'Revoke';
+      revoke.disabled = !token.token_hash || (token.realm === '*' && token.role === 'admin');
+      revoke.addEventListener('click', function () {
+        revokeToken(token);
+      });
+
+      row.appendChild(detail);
+      row.appendChild(revoke);
+      els.tokensList.appendChild(row);
+    });
   }
 
   function renderBackendOptions() {
@@ -440,6 +586,63 @@
     setStatus('Updated realm ' + realm);
   }
 
+  async function setRealmManagerKey(realm, managerKey) {
+    var response = await managementCommand({
+      command: 'set_realm_manager_key',
+      realm: realm,
+      manager_key: managerKey || null
+    });
+    if (managerKey)
+      saveLocalRealmManagerKey(realm, managerKey);
+    else
+      saveLocalRealmManagerKey(realm, '');
+    setSettings(response.settings);
+    return response;
+  }
+
+  async function generateRealmManagerKey(realm) {
+    var configured = !!(settings && settings.realms && settings.realms[realm]
+      && settings.realms[realm].manager_key_configured);
+    if (configured && !window.confirm('Rotate manager key for ' + realm + '? Existing operators using the old key will stop working.'))
+      return;
+
+    var managerKey = randomHex(32);
+    await setRealmManagerKey(realm, managerKey);
+    await copyText(managerKey);
+    setStatus('Generated and copied manager key for ' + realm);
+  }
+
+  async function copyRealmManagerKey(realm) {
+    var managerKey = getLocalRealmManagerKey(realm);
+    if (!managerKey)
+      throw new Error('Manager key is not available locally. Generate a new one to copy it.');
+    await copyText(managerKey);
+    setStatus('Manager key copied for ' + realm);
+  }
+
+  async function clearRealmManagerKey(realm) {
+    if (!window.confirm('Clear manager key for ' + realm + '? Realm operators will no longer be able to approve requests with that key.'))
+      return;
+    await setRealmManagerKey(realm, null);
+    setStatus('Cleared manager key for ' + realm);
+  }
+
+  async function revokeToken(token) {
+    if (!token || !token.token_hash)
+      throw new Error('Token hash is required');
+
+    var label = token.client_name || token.client_id || token.token_hash.slice(0, 12);
+    if (!window.confirm('Revoke token for ' + label + '?'))
+      return;
+
+    var response = await managementCommand({
+      command: 'revoke_token',
+      token_hash: token.token_hash
+    });
+    setSettings(response.settings);
+    setStatus('Revoked token for ' + label);
+  }
+
   async function handle(action) {
     try {
       await action();
@@ -501,6 +704,11 @@
         from: from,
         to: to
       });
+      var oldKey = getLocalRealmManagerKey(from);
+      if (oldKey) {
+        saveLocalRealmManagerKey(to, oldKey);
+        saveLocalRealmManagerKey(from, '');
+      }
       els.renameFrom.value = '';
       els.renameTo.value = '';
       setSettings(response.settings);
@@ -524,6 +732,10 @@
       renderRequest(response.request);
       setStatus(response.request ? 'Authorization request refreshed' : 'No pending requests');
     });
+  });
+
+  els.refreshTokensBtn.addEventListener('click', function () {
+    handle(refreshSettings);
   });
 
   els.approveRequestBtn.addEventListener('click', function () {
@@ -557,7 +769,7 @@
 
   els.copySettingsBtn.addEventListener('click', function () {
     handle(async function () {
-      await navigator.clipboard.writeText(els.settingsOutput.textContent);
+      await copyText(els.settingsOutput.textContent);
       setStatus('Settings copied');
     });
   });

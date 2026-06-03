@@ -254,7 +254,7 @@ label {
 
 .realm-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(180px, 1fr) auto auto auto auto auto;
   gap: 8px;
   align-items: center;
   padding: 8px 0;
@@ -268,6 +268,46 @@ label {
 .realm-name {
   overflow-wrap: anywhere;
   font-family: Consolas, Monaco, monospace;
+}
+
+.realm-detail {
+  min-width: 0;
+}
+
+.realm-meta {
+  margin-top: 3px;
+  color: #627080;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.token-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px solid #e8edf2;
+}
+
+.token-row:last-child {
+  border-bottom: 0;
+}
+
+.token-detail {
+  min-width: 0;
+}
+
+.token-title {
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.token-meta {
+  margin-top: 3px;
+  color: #627080;
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .pill {
@@ -329,6 +369,7 @@ pre {
   }
 
   .inline-form,
+  .realm-row,
   .persistence-form,
   .backend-options {
     grid-template-columns: 1fr;
