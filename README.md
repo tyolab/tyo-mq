@@ -165,7 +165,7 @@ npm run auth:admin
 The helper reads `TYO_MQ_ADMIN_TOKEN` from `.env` and sends `AUTHENTICATION` to
 the running server.
 
-Managers do not need to send the admin token to approve new client tokens. A
+Managers do not need to send shared secrets to approve new client tokens. A
 client can submit a pending authorization request:
 
 ```bash
@@ -176,9 +176,9 @@ npm run auth:request -- \
   --client-name "Tyolab Agent 01"
 ```
 
-The command prints a generated `client_token` and `request_id`. A manager can
-retrieve pending requests and approve or reject them with a signed proof derived
-from `TYO_MQ_ADMIN_TOKEN`:
+The command prints a generated `client_token` and `request_id`. A server admin
+can retrieve pending requests and approve or reject them with a signed proof
+derived from `TYO_MQ_ADMIN_TOKEN`:
 
 ```bash
 npm run auth:manager -- next
@@ -186,10 +186,40 @@ npm run auth:manager -- approve <request_id> --role consumer
 npm run auth:manager -- reject <request_id> --reason "unknown client"
 ```
 
+An org or realm operator can use a scoped realm manager key instead:
+
+```json
+{
+  "auth": {
+    "realms": {
+      "tyolab": {
+        "required": true,
+        "manager_key": "realm-manager-shared-secret"
+      }
+    }
+  }
+}
+```
+
+```bash
+TYO_MQ_REALM_MANAGER_KEY="realm-manager-shared-secret" \
+  npm run auth:manager -- next --realm tyolab
+
+TYO_MQ_REALM_MANAGER_KEY="realm-manager-shared-secret" \
+  npm run auth:manager -- approve <request_id> --role consumer
+```
+
 The manager proof is an HMAC-SHA256 signature over the action, body, timestamp,
-and nonce. The admin token stays local to the manager script. Approved client
-tokens are added to the server's in-memory auth token list for the current
-server process.
+and nonce. The admin token or realm manager key stays local to the manager
+script. A realm manager key can only poll and decide authorization requests in
+its configured realm; server-wide management commands still require the global
+admin token. Approved client tokens are added to the server's auth token list.
+When `TYO_MQ_SETTINGS_FILE` is configured, approved tokens are persisted to that
+file and survive restarts; otherwise they are runtime-only.
+
+Approved client tokens can be revoked through the interactive manager or the
+signed management command `revoke_token`. Revocation can identify a token by
+`token_hash`, or by `realm` plus `client_id`.
 
 The same flow is available as library calls:
 
@@ -208,6 +238,16 @@ await Authorization.submitAuthorizationRequest({
 var next = await Authorization.nextAuthorizationRequest(process.env.TYO_MQ_ADMIN_TOKEN);
 await Authorization.decideAuthorizationRequest(process.env.TYO_MQ_ADMIN_TOKEN, {
     request_id: next.request.request_id,
+    approved: true,
+    role: 'consumer'
+});
+
+var realmNext = await Authorization.nextRealmAuthorizationRequest(
+    process.env.TYO_MQ_REALM_MANAGER_KEY,
+    'tyolab'
+);
+await Authorization.decideRealmAuthorizationRequest(process.env.TYO_MQ_REALM_MANAGER_KEY, {
+    request_id: realmNext.request.request_id,
     approved: true,
     role: 'consumer'
 });
