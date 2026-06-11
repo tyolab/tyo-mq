@@ -707,7 +707,7 @@ Socket.prototype.authenticate = function (callback) {
     var self = this;
     var auth = this.auth;
 
-    if (!auth || !auth.token) {
+    if (!auth || (!auth.token && !auth.key && !auth.role && !auth.realm)) {
         callback();
         return;
     }
@@ -741,7 +741,13 @@ Socket.prototype.authenticate = function (callback) {
 
     this.socket.once('AUTH_OK', onAuthOk);
     this.socket.once('AUTH_FAIL', onAuthFail);
-    this.socket.emit('AUTHENTICATION', {token: auth.token});
+
+    var payload = {};
+    if (auth.token) payload.token = auth.token;
+    if (auth.realm) payload.realm = auth.realm;
+    if (auth.role) payload.role = auth.role;
+    if (auth.key) payload.key = auth.key;
+    this.socket.emit('AUTHENTICATION', payload);
 };
 
 /**

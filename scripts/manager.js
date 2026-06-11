@@ -83,6 +83,8 @@ function printMenu() {
     console.log('13. Reject request by id');
     console.log('14. Revoke authorized client token');
     console.log('15. Set or clear realm manager key');
+    console.log('16. Set or clear realm pre-shared key (consumers)');
+    console.log('17. Set realm producer acceptance requirement');
     console.log('0. Exit');
 }
 
@@ -215,6 +217,36 @@ async function setRealmManagerKey() {
     console.log(JSON.stringify(response.settings.realms[realm], null, 2));
 }
 
+async function setRealmKey() {
+    var realm = await ask('Realm name: ');
+    if (!realm)
+        return console.log('No realm name provided.');
+
+    var key = await ask('Pre-shared key (blank to clear): ');
+    var response = await managementCommand({
+        command: 'set_realm_key',
+        realm: realm,
+        key: key || null
+    });
+    console.log(JSON.stringify(response.settings.realms[realm], null, 2));
+}
+
+async function setRealmAcceptance() {
+    var realm = await ask('Realm name: ');
+    if (!realm)
+        return console.log('No realm name provided.');
+
+    var answer = await ask('Require producer acceptance for this realm? [Y/n]: ');
+    var required = answer.toLowerCase() !== 'n';
+    var response = await managementCommand({
+        command: 'set_realm_acceptance',
+        realm: realm,
+        required: required
+    });
+    console.log('Realm ' + realm + ' require_acceptance = ' + required);
+    console.log(JSON.stringify(response.settings.realms[realm], null, 2));
+}
+
 async function handleChoice(choice) {
     if (choice === '0') return false;
     if (choice === '1') await showAuthSettings();
@@ -232,6 +264,8 @@ async function handleChoice(choice) {
     else if (choice === '13') await decideById(false);
     else if (choice === '14') await revokeToken();
     else if (choice === '15') await setRealmManagerKey();
+    else if (choice === '16') await setRealmKey();
+    else if (choice === '17') await setRealmAcceptance();
     else console.log('Unknown choice: ' + choice);
     return true;
 }
