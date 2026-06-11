@@ -104,6 +104,33 @@
     window.localStorage.setItem(localRealmKeyStore(), JSON.stringify(keys));
   }
 
+  function localRealmPskStore() {
+    var serverUrl = els.serverUrl.value.trim() || 'default';
+    return 'tyoMqManagerRealmPsks:' + serverUrl;
+  }
+
+  function loadLocalRealmPsks() {
+    try {
+      return JSON.parse(window.localStorage.getItem(localRealmPskStore()) || '{}') || {};
+    }
+    catch (err) {
+      return {};
+    }
+  }
+
+  function getLocalRealmPsk(realm) {
+    return loadLocalRealmPsks()[realm] || '';
+  }
+
+  function saveLocalRealmPsk(realm, key) {
+    var keys = loadLocalRealmPsks();
+    if (key)
+      keys[realm] = key;
+    else
+      delete keys[realm];
+    window.localStorage.setItem(localRealmPskStore(), JSON.stringify(keys));
+  }
+
   async function copyText(value) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(value);
@@ -351,6 +378,84 @@
       row.appendChild(copy);
       row.appendChild(clear);
       els.realmsList.appendChild(row);
+
+      // Connection access: consumer pre-shared key + producer acceptance.
+      var keyConfigured = !!realm.key_configured;
+      var localPsk = getLocalRealmPsk(name);
+      var acceptanceRequired = realm.require_acceptance !== false;
+
+      var accessRow = document.createElement('div');
+      accessRow.className = 'realm-row';
+
+      var accessDetail = document.createElement('div');
+      accessDetail.className = 'realm-detail';
+
+      var accessLabel = document.createElement('div');
+      accessLabel.className = 'realm-name';
+      accessLabel.textContent = name + ' · connections';
+
+      var accessMeta = document.createElement('div');
+      accessMeta.className = 'realm-meta';
+      accessMeta.textContent = (keyConfigured
+        ? (localPsk ? 'consumer key available locally' : 'consumer key configured')
+        : 'consumers connect without a key')
+        + ' · producers ' + (acceptanceRequired ? 'need acceptance' : 'auto-accepted');
+
+      accessDetail.appendChild(accessLabel);
+      accessDetail.appendChild(accessMeta);
+
+      var acceptancePill = document.createElement('span');
+      acceptancePill.className = acceptanceRequired ? 'pill' : 'pill open';
+      acceptancePill.textContent = acceptanceRequired ? 'acceptance required' : 'producers open';
+
+      var acceptanceToggle = document.createElement('button');
+      acceptanceToggle.type = 'button';
+      acceptanceToggle.className = 'secondary';
+      acceptanceToggle.textContent = acceptanceRequired ? 'Waive acceptance' : 'Require acceptance';
+      acceptanceToggle.addEventListener('click', function () {
+        handle(function () {
+          return setRealmAcceptance(name, !acceptanceRequired);
+        });
+      });
+
+      var generatePsk = document.createElement('button');
+      generatePsk.type = 'button';
+      generatePsk.textContent = keyConfigured ? 'Rotate consumer key' : 'Generate consumer key';
+      generatePsk.addEventListener('click', function () {
+        handle(function () {
+          return generateRealmKey(name);
+        });
+      });
+
+      var copyPsk = document.createElement('button');
+      copyPsk.type = 'button';
+      copyPsk.className = 'secondary';
+      copyPsk.textContent = 'Copy consumer key';
+      copyPsk.disabled = !localPsk;
+      copyPsk.addEventListener('click', function () {
+        handle(function () {
+          return copyRealmKey(name);
+        });
+      });
+
+      var clearPsk = document.createElement('button');
+      clearPsk.type = 'button';
+      clearPsk.className = 'secondary';
+      clearPsk.textContent = 'Clear consumer key';
+      clearPsk.disabled = !keyConfigured;
+      clearPsk.addEventListener('click', function () {
+        handle(function () {
+          return clearRealmKey(name);
+        });
+      });
+
+      accessRow.appendChild(accessDetail);
+      accessRow.appendChild(acceptancePill);
+      accessRow.appendChild(acceptanceToggle);
+      accessRow.appendChild(generatePsk);
+      accessRow.appendChild(copyPsk);
+      accessRow.appendChild(clearPsk);
+      els.realmsList.appendChild(accessRow);
     });
   }
 
@@ -627,6 +732,54 @@
     setStatus('Cleared manager key for ' + realm);
   }
 
+  async function setRealmKey(realm, key) {
+    var response = await managementCommand({
+      command: 'set_realm_key',
+      realm: realm,
+      key: key || null
+    });
+    saveLocalRealmPsk(realm, key || '');
+    setSettings(response.settings);
+    return response;
+  }
+
+  async function generateRealmKey(realm) {
+    var configured = !!(settings && settings.realms && settings.realms[realm]
+      && settings.realms[realm].key_configured);
+    if (configured && !window.confirm('Rotate pre-shared key for ' + realm + '? Consumers using the old key will stop connecting.'))
+      return;
+
+    var key = randomHex(32);
+    await setRealmKey(realm, key);
+    await copyText(key);
+    setStatus('Generated and copied pre-shared key for ' + realm);
+  }
+
+  async function copyRealmKey(realm) {
+    var key = getLocalRealmPsk(realm);
+    if (!key)
+      throw new Error('Pre-shared key is not available locally. Generate a new one to copy it.');
+    await copyText(key);
+    setStatus('Pre-shared key copied for ' + realm);
+  }
+
+  async function clearRealmKey(realm) {
+    if (!window.confirm('Clear pre-shared key for ' + realm + '? Consumers will connect without a key.'))
+      return;
+    await setRealmKey(realm, null);
+    setStatus('Cleared pre-shared key for ' + realm);
+  }
+
+  async function setRealmAcceptance(realm, required) {
+    var response = await managementCommand({
+      command: 'set_realm_acceptance',
+      realm: realm,
+      required: required
+    });
+    setSettings(response.settings);
+    setStatus('Realm ' + realm + ' producer acceptance ' + (required ? 'required' : 'waived'));
+  }
+
   async function revokeToken(token) {
     if (!token || !token.token_hash)
       throw new Error('Token hash is required');
@@ -708,6 +861,11 @@
       if (oldKey) {
         saveLocalRealmManagerKey(to, oldKey);
         saveLocalRealmManagerKey(from, '');
+      }
+      var oldPsk = getLocalRealmPsk(from);
+      if (oldPsk) {
+        saveLocalRealmPsk(to, oldPsk);
+        saveLocalRealmPsk(from, '');
       }
       els.renameFrom.value = '';
       els.renameTo.value = '';
