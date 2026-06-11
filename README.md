@@ -174,12 +174,52 @@ var producerMq = new Factory({ auth: { token: 'secret-acme-prod' } });
 var consumerMq = new Factory({ auth: { token: 'secret-acme-cons' } });
 ```
 
-Supported roles are `producer`, `consumer`, `both`, and `admin`. Producers,
-consumers, and subscriptions are scoped to the authenticated `realm`, so the
-same producer or consumer names can exist independently in different realms.
-In addition to configured opaque tokens, the server can validate HS256 JWTs
-with `auth.jwt_secret` or delegate validation to an HTTP endpoint with
-`auth.auth_url`.
+Supported roles are `producer`, `consumer`, `both`, `manager`, and `admin`.
+Producers, consumers, and subscriptions are scoped to the authenticated
+`realm`, so the same producer or consumer names can exist independently in
+different realms. `manager` is a per-realm administration role; `admin` spans
+all realms (`realm: "*"`). In addition to configured opaque tokens, the server
+can validate HS256 JWTs with `auth.jwt_secret` or delegate validation to an
+HTTP endpoint with `auth.auth_url`.
+
+#### Connection authorization
+
+Only `manager` connections always require manual authorization (an approved
+token, granted via the authorization request flow or configured directly).
+Other roles are governed by per-realm settings:
+
+```json
+{
+  "auth": {
+    "enabled": true,
+    "realms": {
+      "acme": {
+        "key": "consumer-pre-shared-key",
+        "require_acceptance": true
+      }
+    }
+  }
+}
+```
+
+- `consumer` (and `both`) present the realm's pre-shared `key`. Connections
+  without a realm, or to a realm without a key (or with `require_key: false`),
+  are allowed automatically.
+- `producer` (and `both`) must be accepted into the realm through the
+  authorization request flow, unless the realm sets
+  `require_acceptance: false`.
+
+```javascript
+// consumer joins with the realm pre-shared key — no token needed
+var consumerMq = new Factory({
+    auth: { realm: 'acme', role: 'consumer', key: 'consumer-pre-shared-key' }
+});
+```
+
+The pre-shared key and acceptance requirement are managed with the signed
+management commands `set_realm_key` and `set_realm_acceptance` — available from
+the interactive manager (`npm run manager`), the web manager UI
+(`npm run manager:web`), or `Authorization.authManagementCommand()`.
 
 When auth is enabled and no `realm: "*", role: "admin"` token is configured,
 the server creates one automatically and appends it to `.env` as

@@ -1,6 +1,6 @@
 # tyo-mq — Improvement Plan
 
-Current version: 0.6.x
+Current version: 0.7.x
 Based on: socket.io, Node.js
 
 ---
@@ -46,7 +46,7 @@ Fill in the empty `AUTHENTICATION` handler in `server.js`.
 **Protocol:**
 ```
 client → server: AUTHENTICATION { token: "<jwt-or-api-key>" }
-server → client: AUTH_OK { realm: "acme", role: "producer|consumer|both" }
+server → client: AUTH_OK { realm: "acme", role: "producer|consumer|both|manager|admin" }
                | AUTH_FAIL { code: 401, message: "..." }
 ```
 
@@ -82,7 +82,7 @@ A **realm** is a named isolation boundary. Producers and consumers in realm
 - All subscription lookups and message routing are scoped by realm
 - A socket in realm `acme` that tries to subscribe to a producer in realm
   `beta` gets `AUTH_FAIL { code: 403 }`
-- A special `realm: "*"` (superadmin) can see across realms — for monitoring
+- A special `realm: "*"` (admin) can see across realms — for monitoring
   and management use only
 
 **Internal change:** `subscriptions`, `producers`, `consumers` maps become
@@ -100,12 +100,45 @@ No changes to the client API — realm is transparent once authenticated.
 
 ### 1.3 Roles
 
+> **Note:** `manager` is a new per-realm administration role that sits
+> between `admin` and the producer/consumer roles.
+
 | Role | Can do |
 |------|--------|
 | `producer` | PRODUCER, PRODUCE, PRODUCE_CHUNK |
 | `consumer` | CONSUMER, SUBSCRIBE, UNSUBSCRIBE |
 | `both` | All of the above |
-| `admin` | All + management API (Phase 5) |
+| `manager` | Realm administration: approve/accept producers, manage realm pre-shared keys and realm settings, management API scoped to its own realm |
+| `admin` | Everything, across all realms (`realm: "*"`) + management API (Phase 5) |
+
+### 1.4 Connection Authorization
+
+Originally the plan required manual authorization for **every** connection.
+That is now relaxed: only `manager` connections always require manual
+authorization (approved by an `admin`, or by an already-authorized
+manager of the same realm). All other roles are governed by per-realm
+settings:
+
+```yaml
+realms:
+  acme:
+    require_key: true          # consumers must present the realm's pre-shared key
+    require_acceptance: true   # producers must be accepted into the realm
+```
+
+**`consumer` (and `both`):** must present the realm's **pre-shared key**.
+Keys are managed through the backend, the web UI, or `scripts/manager.js`.
+If the connection has no realm, or the realm is configured with
+`require_key: false`, the connection is allowed automatically.
+
+**`producer` (and `both`):** must be **accepted** into the realm (a manager
+or admin approves the pending request) before it may produce messages.
+If the realm is configured with `require_acceptance: false`, producing is
+allowed without acceptance.
+
+A `both` connection is subject to **both** rules: the pre-shared key to
+connect/consume, and realm acceptance to produce — each independently
+relaxed by the realm's settings above.
 
 ---
 
@@ -253,7 +286,8 @@ producer.produce('event', data, { broadcast: 'group', group: 'workers' })
 ### 5.1 REST Management API
 
 A lightweight HTTP API (separate port, default `17353`) for inspection and
-control. Requires `admin` role token.
+control. Requires an `admin` token (all realms) or a `manager` token
+(scoped to that manager's own realm).
 
 | Method | Path | Description |
 |--------|------|-------------|
