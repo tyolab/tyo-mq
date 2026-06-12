@@ -142,6 +142,26 @@ producer.produce('rollout', data, { broadcast: 'group', group: 'workers' });
 Broadcast is fire-and-forget: it does not enqueue for offline durable
 subscribers.
 
+## Clustering
+
+Multiple tyo-mq nodes can share one Redis so managed settings (realms,
+pre-shared keys, approved tokens) stay in sync across nodes, signed manager
+commands cannot be replayed against a peer node, and durable subscribers can
+reconnect to any node. Enable it in the settings file on every node:
+
+```json
+{
+  "storage": "redis",
+  "storage_options": { "url": "redis://10.0.0.5:6379/0" },
+  "cluster": { "enabled": true }
+}
+```
+
+`cluster.redis_url` defaults to `storage_options.url`. Live cross-node message
+routing is not yet implemented — keep a producer and its subscribers on the
+same node (sticky sessions). See [docs/CLUSTERING.md](docs/CLUSTERING.md) for
+the full setup guide.
+
 ## Demo
 
 ### Start the TYO-MQ server
