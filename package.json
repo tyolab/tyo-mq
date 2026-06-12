@@ -24,7 +24,7 @@
     "browserify": "browserify web/web.js -o web/client/tyo-mq-client.js"
   },
   "author": "TYO Lab",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "dependencies": {
     "bufferutil": "^4.0.7",
     "http": "0.0.0",

@@ -397,6 +397,6 @@ existing deployments).
 - socket.io as the transport — keeps browser compatibility and wide client support
 - JavaScript / Node.js — no language change
 - `new Server()`, `createProducer()`, `createConsumer()` API — fully backwards compatible
-- MIT license
+- Apache License 2.0 (relicensed from MIT in 0.11.x)
 - npm package name `tyo-mq`
 - Default port `17352`
