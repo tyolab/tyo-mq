@@ -101,6 +101,47 @@ The storage backends expose `deadLetter(msgId, reason)`, `listDlq(realm)`, and
 entries until process exit; SQLite and Redis keep them in their configured
 stores.
 
+## Topics, Consumer Groups, and Broadcast
+
+All routing features are opt-in; the default producer/event routing is
+unchanged.
+
+**Topic subscriptions** (`{ mode: 'topic' }`) use MQTT-style hierarchical
+patterns: `+` matches exactly one level, `#` matches any number of trailing
+levels. Topic subscriptions match the produced event name from any producer.
+They compose with `durable`, `ack`, and `retry` like any other subscription.
+
+```javascript
+consumer.subscribe('org/acme/machine/+/cmd', function (data, from, ack, raw) {
+    console.log('command for', raw.event, ':', data);  // raw.event = concrete topic
+}, { mode: 'topic' });
+
+consumer.subscribe('org/acme/#', handler, { mode: 'topic', durable: true });
+
+producer.produce('org/acme/machine/m-01/cmd', 'restart');
+```
+
+**Consumer groups** (`{ group: 'name' }`) share the load of an event or topic:
+each message is delivered to exactly one member of the group (round-robin),
+while ungrouped subscribers still receive every message.
+
+```javascript
+workerA.subscribe('org/acme/machine/+/cmd', handler, { mode: 'topic', group: 'workers' });
+workerB.subscribe('org/acme/machine/+/cmd', handler, { mode: 'topic', group: 'workers' });
+```
+
+**Broadcast** sends one message to every connected member of the producer's
+realm — including realm members with no matching subscription — or to every
+member of a group (one copy each, no load balancing):
+
+```javascript
+producer.produce('announcement', data, { broadcast: 'realm' });
+producer.produce('rollout', data, { broadcast: 'group', group: 'workers' });
+```
+
+Broadcast is fire-and-forget: it does not enqueue for offline durable
+subscribers.
+
 ## Demo
 
 ### Start the TYO-MQ server

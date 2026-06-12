@@ -1,6 +1,6 @@
 # tyo-mq — Improvement Plan
 
-Current version: 0.7.x
+Current version: 0.8.x
 Based on: socket.io, Node.js
 
 ---
@@ -343,8 +343,8 @@ throughput), multiple nodes share state via a Redis pub/sub backbone:
 | 0.4.x | Phase 1 (auth + realms) | No — auth is opt-in via config |
 | 0.5.x | Phase 2 (persistence) | No — durable is opt-in per subscription |
 | 0.6.x | Phase 3 (ACK + DLQ) | Minor — new ACK message in protocol |
-| 0.7.x | Phase 4 (topics + groups) | No — topic mode is opt-in |
-| 0.8.x | Phase 5 (management API) | No |
+| 0.8.x | Phase 4 (topics + groups) | No — topic mode is opt-in |
+| 0.9.x | Phase 5 (management API) | No |
 | 1.0.0 | All phases stable | Semantic versioning from here |
 
 Auth is always backwards-compatible when `auth.enabled: false` (default for
