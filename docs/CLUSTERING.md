@@ -9,13 +9,20 @@ This guide sets up multiple tyo-mq nodes (one per VM) that share one Redis.
 | Settings sync — realms, pre-shared keys, acceptance flags, approved/revoked tokens, persistence config applied on any node propagate to every node | ✅ |
 | Cluster-wide manager-proof replay protection (a signed manager command works on exactly one node) | ✅ |
 | Durable message replay across nodes — a durable subscriber can reconnect to a *different* node and still receive its queued messages (requires `storage: "redis"`) | ✅ |
-| Live message routing across nodes — a producer on node A reaching a live subscriber socket on node B | ❌ not yet — see [Topology rules](#topology-rules) |
-| Pending authorization requests visible from any node | ❌ not yet — submit and approve through the same node |
+| Live message routing across nodes — a producer on node A reaches live subscribers on node B (plain, topic, and realm-broadcast messages relayed via Redis pub/sub) | ✅ |
+| Pending authorization requests — submit on any node, poll and decide from any node; the requester is notified on whichever node holds its socket | ✅ |
 
-Because live routing is not yet cross-node, a producer and the consumers
-subscribed to it must be connected to the **same** node. Use sticky sessions
-(or route each realm/tenant to one node) until the socket.io Redis adapter
-lands.
+**Delivery semantics across nodes:** the origin node delivers with full
+semantics (live, durable enqueue, group selection). Peer nodes deliver
+relayed messages to their locally connected subscribers only — durable
+enqueueing happens exactly once, on the origin node. Durable + ACK delivery
+remains at-least-once: a durable consumer that switches nodes may see a
+duplicate after the switch, so handlers should stay idempotent.
+
+**Consumer groups are per-node:** each node load-balances a group among its
+own members and relayed messages skip group subscriptions, so members of one
+group should connect to the same node (pin the group's workers to one
+backend, or use sticky sessions keyed so they land together).
 
 ## Architecture
 
@@ -120,9 +127,10 @@ The log line `Cluster sync active (node <id>)` confirms the node joined.
 
 ## 3. Load balancer
 
-socket.io needs sticky sessions (its handshake spans multiple requests), and
-until cross-node live routing exists, stickiness is also what keeps a
-producer and its subscribers on the same node.
+socket.io needs sticky sessions (its handshake spans multiple requests).
+Live routing works across nodes, so producers and consumers may land on
+different backends — only consumer-group members should be kept together
+(see above).
 
 nginx example:
 
