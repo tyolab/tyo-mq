@@ -457,6 +457,12 @@ function Publisher (name, event, options) {
             message.ttl = self.default_ttl;
         else if (validFor !== undefined && !(validFor && typeof validFor === 'object'))
             message.lifespan = validFor;
+        if (options.broadcast) {
+            message.method = 'broadcast';
+            message.broadcast = options.broadcast === 'group' ? 'group' : 'realm';
+            if (options.group)
+                message.group = options.group;
+        }
         if (to)
             message.to = to;
 
@@ -1075,7 +1081,9 @@ function Subscriber (name, options) {
                     ack: ackEnabled,
                     manual_ack: !!(subscribeOptions.manual_ack || subscribeOptions.manualAck),
                     ack_timeout: subscribeOptions.ack_timeout || subscribeOptions.ackTimeout,
-                    retry: subscribeOptions.retry || null
+                    retry: subscribeOptions.retry || null,
+                    mode: subscribeOptions.mode || null,
+                    group: subscribeOptions.group || null
                 });
             }
     
