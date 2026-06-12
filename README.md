@@ -144,10 +144,12 @@ subscribers.
 
 ## Clustering
 
-Multiple tyo-mq nodes can share one Redis so managed settings (realms,
+Multiple tyo-mq nodes can share one Redis: managed settings (realms,
 pre-shared keys, approved tokens) stay in sync across nodes, signed manager
-commands cannot be replayed against a peer node, and durable subscribers can
-reconnect to any node. Enable it in the settings file on every node:
+commands cannot be replayed against a peer node, durable subscribers can
+reconnect to any node, live messages are relayed so a producer on one node
+reaches subscribers on every node, and authorization requests can be decided
+from any node. Enable it in the settings file on every node:
 
 ```json
 {
@@ -157,10 +159,10 @@ reconnect to any node. Enable it in the settings file on every node:
 }
 ```
 
-`cluster.redis_url` defaults to `storage_options.url`. Live cross-node message
-routing is not yet implemented — keep a producer and its subscribers on the
-same node (sticky sessions). See [docs/CLUSTERING.md](docs/CLUSTERING.md) for
-the full setup guide.
+`cluster.redis_url` defaults to `storage_options.url`. Consumer groups are
+load-balanced per node, so a group's members should connect to the same node.
+See [docs/CLUSTERING.md](docs/CLUSTERING.md) for the full setup guide and
+delivery semantics.
 
 ## Observability (opt-in HTTP API)
 

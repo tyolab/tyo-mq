@@ -189,4 +189,119 @@ test('dlq endpoint lists dead-lettered messages for a realm', async () => {
     }
 });
 
+test('stats management command returns realm state over the signed channel', async () => {
+    const Authorization = require('../lib/authorization');
+    const Factory = require('../lib/factory');
+    const adminToken = 'p5-stats-admin';
+    const server = await startServer({
+        auth: {
+            enabled: true,
+            tokens: [
+                { token: adminToken, realm: '*', role: 'admin' },
+                { token: 'p5-stats-both', realm: 'p5-stats-realm', role: 'both' }
+            ]
+        }
+    });
+    const options = { host: '127.0.0.1', port: server.port, protocol: 'http' };
+    const client = new Factory({
+        host: '127.0.0.1', port: server.port, protocol: 'http',
+        auth: { token: 'p5-stats-both' }
+    });
+
+    let producer;
+    let consumer;
+    try {
+        producer = await client.createProducer('p5-stats-producer');
+        consumer = await client.createConsumer('p5-stats-consumer');
+        consumer.subscribe(producer.name, 'p5-stats-event', function () {});
+        await delay(400);
+
+        const response = await Authorization.authManagementCommand(adminToken, {
+            command: 'stats'
+        }, options);
+        const realm = response.stats.realms['p5-stats-realm'];
+        assert.ok(realm, 'stats must include the realm: ' + JSON.stringify(response.stats));
+        assert.ok(realm.producers.online >= 1, JSON.stringify(realm));
+        assert.ok(realm.consumers.online >= 1, JSON.stringify(realm));
+        assert.ok(realm.subscriptions >= 1, JSON.stringify(realm));
+    } finally {
+        if (producer) producer.disconnect();
+        if (consumer) consumer.disconnect();
+        await server.close();
+    }
+});
+
+test('dlq management commands list, replay, and discard messages', async () => {
+    const Authorization = require('../lib/authorization');
+    const adminToken = 'p5-dlq-admin';
+    const server = await startServer({
+        storage: 'memory',
+        auth: {
+            enabled: true,
+            tokens: [
+                { token: adminToken, realm: '*', role: 'admin' }
+            ]
+        }
+    });
+    const options = { host: '127.0.0.1', port: server.port, protocol: 'http' };
+    const store = server.server.store;
+
+    try {
+        const replayId = await store.enqueue('p5-dlq-realm', 'p5-dlq-event', {
+            consumer_id: 'p5-dlq-consumer',
+            payload: { message: 'replay-me' },
+            producer: 'p5-dlq-producer'
+        });
+        await store.deadLetter(replayId, 'poison');
+        const discardId = await store.enqueue('p5-dlq-realm', 'p5-dlq-event', {
+            consumer_id: 'p5-dlq-consumer',
+            payload: { message: 'discard-me' },
+            producer: 'p5-dlq-producer'
+        });
+        await store.deadLetter(discardId, 'hopeless');
+
+        const listed = await Authorization.authManagementCommand(adminToken, {
+            command: 'dlq_list',
+            realm: 'p5-dlq-realm'
+        }, options);
+        assert.strictEqual(listed.entries.length, 2, JSON.stringify(listed));
+
+        // Replay re-enqueues the message for its consumer and removes it
+        // from the DLQ.
+        const replayed = await Authorization.authManagementCommand(adminToken, {
+            command: 'dlq_replay',
+            realm: 'p5-dlq-realm',
+            msg_id: replayId
+        }, options);
+        assert.strictEqual(replayed.ok, true, JSON.stringify(replayed));
+        assert.ok(replayed.new_msg_id, 'replay should produce a new queued message id');
+
+        const requeued = await store.dequeue('p5-dlq-realm', 'p5-dlq-event', 'p5-dlq-consumer');
+        assert.strictEqual(requeued.length, 1);
+        assert.deepStrictEqual(requeued[0].message, { message: 'replay-me' });
+
+        const discarded = await Authorization.authManagementCommand(adminToken, {
+            command: 'dlq_discard',
+            realm: 'p5-dlq-realm',
+            msg_id: discardId
+        }, options);
+        assert.strictEqual(discarded.ok, true, JSON.stringify(discarded));
+
+        const after = await Authorization.authManagementCommand(adminToken, {
+            command: 'dlq_list',
+            realm: 'p5-dlq-realm'
+        }, options);
+        assert.strictEqual(after.entries.length, 0, JSON.stringify(after));
+
+        const missing = await Authorization.authManagementCommand(adminToken, {
+            command: 'dlq_replay',
+            realm: 'p5-dlq-realm',
+            msg_id: 'no-such-id'
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(missing.code, 404);
+    } finally {
+        await server.close();
+    }
+});
+
 run();

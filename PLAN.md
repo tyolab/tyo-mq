@@ -1,6 +1,6 @@
 # tyo-mq — Improvement Plan
 
-Current version: 0.10.x
+Current version: 0.11.x
 Based on: socket.io, Node.js
 
 ---
@@ -291,8 +291,9 @@ producer.produce('event', data, { broadcast: 'group', group: 'workers' })
 > read-only inspection.
 >
 > **Status:** done — opt-in `http_api: { enabled: true }`, served on the
-> same port as the socket server. Remaining: DLQ replay/discard as signed
-> socket commands, and an observability tab in the manager web UI.
+> same port as the socket server; `stats`, `dlq_list`, `dlq_replay`, and
+> `dlq_discard` signed socket commands; observability tab (live stats + DLQ
+> browser with replay/discard) in the manager web UI.
 
 ### 5.1 HTTP Observability Surface (opt-in, read-only)
 
@@ -306,8 +307,10 @@ Disabled by default; no second port. Bearer admin token required (except
 | GET | `/api/realms/{realm}/dlq` | Dead-letter queue contents |
 | GET | `/api/metrics` | Prometheus-format metrics |
 
-DLQ **replay/discard** are write operations and will land on the signed
-socket command channel (`dlq_list` / `dlq_replay` / `dlq_discard`), not HTTP.
+DLQ **replay/discard** are write operations and live on the signed socket
+command channel (`dlq_list` / `dlq_replay` / `dlq_discard`), not HTTP.
+Replay re-enqueues the message for its consumer, removes it from the DLQ,
+and delivers immediately when the consumer is online.
 
 ### 5.2 Metrics
 
@@ -334,11 +337,16 @@ real-time state and queue depths.
 
 ## Phase 6 — Clustering & Horizontal Scale
 
-> **Status:** tier 1 done — shared-Redis settings sync (`cluster.enabled`),
-> cluster-wide manager-nonce replay protection, and cross-node durable replay
-> via the shared Redis store (see `docs/CLUSTERING.md`). Remaining: shared
-> subscription registry, socket.io Redis adapter for live cross-node routing,
-> and shared pending authorization requests.
+> **Status:** done (see `docs/CLUSTERING.md`) — shared-Redis settings sync
+> (`cluster.enabled`), cluster-wide manager-nonce replay protection,
+> cross-node durable replay via the shared Redis store, live cross-node
+> message relay over Redis pub/sub (plain, topic, and broadcast), and shared
+> pending authorization requests with cross-node decision notification.
+> Design note: instead of moving the subscription registry into Redis and
+> using the socket.io Redis adapter, each node keeps its local registry and
+> produced messages are relayed on a cluster channel — peers deliver to
+> their live local subscribers only, the origin node handles durability.
+> Consumer groups remain per-node by design.
 
 When a single tyo-mq node isn't enough (high connection count or high
 throughput), multiple nodes share state via a Redis pub/sub backbone:
@@ -363,6 +371,7 @@ throughput), multiple nodes share state via a Redis pub/sub backbone:
 | 0.8.x | Phase 4 (topics + groups) | No — topic mode is opt-in |
 | 0.9.x | Phase 6 tier 1 (cluster settings sync) | No — cluster is opt-in |
 | 0.10.x | Phase 5 (management API) | No |
+| 0.11.x | Phase 6 complete (cross-node routing, shared auth requests, DLQ tooling) | No |
 | 1.0.0 | All phases stable | Semantic versioning from here |
 
 Auth is always backwards-compatible when `auth.enabled: false` (default for

@@ -32,6 +32,7 @@
       <nav class="tabs" aria-label="Manager sections">
         <button id="main-tab-btn" class="tab-button active" type="button" data-tab="main">Main</button>
         <button id="persistence-tab-btn" class="tab-button" type="button" data-tab="persistence">Persistence</button>
+        <button id="observability-tab-btn" class="tab-button" type="button" data-tab="observability">Observability</button>
       </nav>
 
       <div id="main-tab" class="tab-panel active">
@@ -168,6 +169,27 @@
               <button id="save-persistence-btn" type="submit">Apply persistence</button>
             </div>
           </form>
+        </section>
+      </div>
+
+      <div id="observability-tab" class="tab-panel">
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Live stats</h2>
+            <button id="refresh-stats-btn" type="button">Refresh</button>
+          </div>
+          <pre id="stats-output">{}</pre>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Dead-letter queue</h2>
+            <button id="refresh-dlq-btn" type="button">Refresh</button>
+          </div>
+          <div class="inline-form">
+            <input id="dlq-realm" type="text" placeholder="realm filter (blank for all)" autocomplete="off">
+          </div>
+          <div id="dlq-list" class="list empty">No DLQ entries loaded</div>
         </section>
       </div>
     </main>

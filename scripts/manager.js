@@ -85,6 +85,10 @@ function printMenu() {
     console.log('15. Set or clear realm manager key');
     console.log('16. Set or clear realm pre-shared key (consumers)');
     console.log('17. Set realm producer acceptance requirement');
+    console.log('18. Show live stats (realms, producers, consumers)');
+    console.log('19. List dead-letter queue');
+    console.log('20. Replay dead-letter message');
+    console.log('21. Discard dead-letter message');
     console.log('0. Exit');
 }
 
@@ -247,6 +251,37 @@ async function setRealmAcceptance() {
     console.log(JSON.stringify(response.settings.realms[realm], null, 2));
 }
 
+async function showStats() {
+    var response = await managementCommand({command: 'stats'});
+    console.log(JSON.stringify(response.stats, null, 2));
+}
+
+async function listDlq() {
+    var realm = await ask('Realm filter (blank for all): ');
+    var response = await managementCommand({command: 'dlq_list', realm: realm || null});
+    if (!response.entries || response.entries.length === 0)
+        return console.log('Dead-letter queue is empty.');
+    console.log(JSON.stringify(response.entries, null, 2));
+}
+
+async function replayDlq() {
+    var realm = await ask('Realm (blank for all): ');
+    var msgId = await ask('Message id: ');
+    if (!msgId)
+        return console.log('No message id provided.');
+    var response = await managementCommand({command: 'dlq_replay', realm: realm || null, msg_id: msgId});
+    console.log('Replayed ' + response.msg_id + ' as ' + response.new_msg_id);
+}
+
+async function discardDlq() {
+    var realm = await ask('Realm (blank for all): ');
+    var msgId = await ask('Message id: ');
+    if (!msgId)
+        return console.log('No message id provided.');
+    await managementCommand({command: 'dlq_discard', realm: realm || null, msg_id: msgId});
+    console.log('Discarded ' + msgId);
+}
+
 async function handleChoice(choice) {
     if (choice === '0') return false;
     if (choice === '1') await showAuthSettings();
@@ -266,6 +301,10 @@ async function handleChoice(choice) {
     else if (choice === '15') await setRealmManagerKey();
     else if (choice === '16') await setRealmKey();
     else if (choice === '17') await setRealmAcceptance();
+    else if (choice === '18') await showStats();
+    else if (choice === '19') await listDlq();
+    else if (choice === '20') await replayDlq();
+    else if (choice === '21') await discardDlq();
     else console.log('Unknown choice: ' + choice);
     return true;
 }

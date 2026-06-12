@@ -12,8 +12,15 @@
     clearTokenBtn: document.getElementById('clear-token-btn'),
     mainTabBtn: document.getElementById('main-tab-btn'),
     persistenceTabBtn: document.getElementById('persistence-tab-btn'),
+    observabilityTabBtn: document.getElementById('observability-tab-btn'),
     mainTab: document.getElementById('main-tab'),
     persistenceTab: document.getElementById('persistence-tab'),
+    observabilityTab: document.getElementById('observability-tab'),
+    refreshStatsBtn: document.getElementById('refresh-stats-btn'),
+    statsOutput: document.getElementById('stats-output'),
+    refreshDlqBtn: document.getElementById('refresh-dlq-btn'),
+    dlqRealm: document.getElementById('dlq-realm'),
+    dlqList: document.getElementById('dlq-list'),
     showSettingsBtn: document.getElementById('show-settings-btn'),
     refreshRealmsBtn: document.getElementById('refresh-realms-btn'),
     addRealmForm: document.getElementById('add-realm-form'),
@@ -281,12 +288,18 @@
   }
 
   function setActiveTab(name) {
-    var isPersistence = name === 'persistence';
-    els.mainTabBtn.classList.toggle('active', !isPersistence);
-    els.persistenceTabBtn.classList.toggle('active', isPersistence);
-    els.mainTab.classList.toggle('active', !isPersistence);
-    els.persistenceTab.classList.toggle('active', isPersistence);
-    window.localStorage.setItem('tyoMqManagerActiveTab', isPersistence ? 'persistence' : 'main');
+    var tabs = {
+      main: [els.mainTabBtn, els.mainTab],
+      persistence: [els.persistenceTabBtn, els.persistenceTab],
+      observability: [els.observabilityTabBtn, els.observabilityTab]
+    };
+    if (!tabs[name])
+      name = 'main';
+    Object.keys(tabs).forEach(function (key) {
+      tabs[key][0].classList.toggle('active', key === name);
+      tabs[key][1].classList.toggle('active', key === name);
+    });
+    window.localStorage.setItem('tyoMqManagerActiveTab', name);
   }
 
   function renderRealms() {
@@ -796,6 +809,79 @@
     setStatus('Revoked token for ' + label);
   }
 
+  async function refreshStats() {
+    var response = await managementCommand({command: 'stats'});
+    els.statsOutput.textContent = JSON.stringify(response.stats, null, 2);
+    setStatus('Live stats loaded');
+  }
+
+  function renderDlqEntries(entries) {
+    els.dlqList.innerHTML = '';
+    if (!entries || entries.length === 0) {
+      els.dlqList.className = 'list empty';
+      els.dlqList.textContent = 'Dead-letter queue is empty';
+      return;
+    }
+
+    els.dlqList.className = 'list';
+    entries.forEach(function (entry) {
+      var row = document.createElement('div');
+      row.className = 'realm-row';
+
+      var detail = document.createElement('div');
+      detail.className = 'realm-detail';
+
+      var label = document.createElement('div');
+      label.className = 'realm-name';
+      label.textContent = entry.realm + ' · ' + entry.event;
+
+      var meta = document.createElement('div');
+      meta.className = 'realm-meta';
+      meta.textContent = 'consumer ' + entry.consumer + ' · ' + (entry.reason || 'no reason')
+        + ' · ' + (entry.dead_lettered_at || '') + ' · ' + entry.id;
+
+      detail.appendChild(label);
+      detail.appendChild(meta);
+
+      var replay = document.createElement('button');
+      replay.type = 'button';
+      replay.textContent = 'Replay';
+      replay.addEventListener('click', function () {
+        handle(async function () {
+          await managementCommand({command: 'dlq_replay', realm: entry.realm, msg_id: entry.id});
+          setStatus('Replayed ' + entry.id);
+          await refreshDlq();
+        });
+      });
+
+      var discard = document.createElement('button');
+      discard.type = 'button';
+      discard.className = 'secondary';
+      discard.textContent = 'Discard';
+      discard.addEventListener('click', function () {
+        handle(async function () {
+          if (!window.confirm('Discard dead-letter message ' + entry.id + '?'))
+            return;
+          await managementCommand({command: 'dlq_discard', realm: entry.realm, msg_id: entry.id});
+          setStatus('Discarded ' + entry.id);
+          await refreshDlq();
+        });
+      });
+
+      row.appendChild(detail);
+      row.appendChild(replay);
+      row.appendChild(discard);
+      els.dlqList.appendChild(row);
+    });
+  }
+
+  async function refreshDlq() {
+    var realm = els.dlqRealm.value.trim();
+    var response = await managementCommand({command: 'dlq_list', realm: realm || null});
+    renderDlqEntries(response.entries);
+    setStatus('Dead-letter queue loaded (' + (response.entries || []).length + ' entries)');
+  }
+
   async function handle(action) {
     try {
       await action();
@@ -822,6 +908,18 @@
 
   els.persistenceTabBtn.addEventListener('click', function () {
     setActiveTab('persistence');
+  });
+
+  els.observabilityTabBtn.addEventListener('click', function () {
+    setActiveTab('observability');
+  });
+
+  els.refreshStatsBtn.addEventListener('click', function () {
+    handle(refreshStats);
+  });
+
+  els.refreshDlqBtn.addEventListener('click', function () {
+    handle(refreshDlq);
   });
 
   els.refreshRealmsBtn.addEventListener('click', function () {

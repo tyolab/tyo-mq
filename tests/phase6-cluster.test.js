@@ -111,12 +111,15 @@ FakeHubClient.prototype.quit = function () {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+const RELAY_TOKEN = 'phase6-relay-both-token';
+
 function clusterNode(hub, prefix) {
     return startServer({
         auth: {
             enabled: true,
             tokens: [
-                { token: ADMIN_TOKEN, realm: '*', role: 'admin' }
+                { token: ADMIN_TOKEN, realm: '*', role: 'admin' },
+                { token: RELAY_TOKEN, realm: 'phase6-relay-realm', role: 'both' }
             ]
         },
         cluster: {
@@ -125,6 +128,16 @@ function clusterNode(hub, prefix) {
             client: hub.createClient(),
             subscriber: hub.createClient()
         }
+    });
+}
+
+function relayFactory(port) {
+    const Factory = require('../lib/factory');
+    return new Factory({
+        host: '127.0.0.1',
+        port: port,
+        protocol: 'http',
+        auth: { token: RELAY_TOKEN }
     });
 }
 
@@ -310,6 +323,138 @@ test('a node joining later adopts the settings already in the cluster', async ()
         if (socket) socket.disconnect();
         if (nodeC) await nodeC.close();
         await nodeA.close();
+    }
+});
+
+test('authorization request submitted on one node is decided from a peer node', async () => {
+    const hub = new FakeRedisHub();
+    const nodeA = await clusterNode(hub, 'p6-authreq');
+    const nodeB = await clusterNode(hub, 'p6-authreq');
+    const optionsB = { host: '127.0.0.1', port: nodeB.port, protocol: 'http' };
+
+    let requesterSocket;
+    let clientSocket;
+    try {
+        await delay(300);
+
+        // Requester connects to node A and keeps the socket open for the
+        // approval notification.
+        requesterSocket = await connect(nodeA.port);
+        const approvedPromise = waitFor(requesterSocket, 'AUTHORIZATION_APPROVED', 6000);
+        const submitted = await emitAck(requesterSocket, 'AUTHORIZATION_REQUEST', {
+            realm: 'cross-node-auth-realm',
+            role: 'consumer',
+            client_id: 'cross-node-client',
+            client_name: 'Cross Node Client',
+            client_token: 'cross-node-client-token'
+        });
+        assert.strictEqual(submitted.ok, true, JSON.stringify(submitted));
+        await delay(300);
+
+        // A manager polling node B sees the request submitted via node A...
+        const next = await Authorization.nextAuthorizationRequest(ADMIN_TOKEN, {}, optionsB);
+        assert.ok(next.request, 'peer node must see the pending request');
+        assert.strictEqual(next.request.request_id, submitted.request_id);
+        assert.strictEqual(next.request.realm, 'cross-node-auth-realm');
+
+        // ...and decides it there.
+        const decision = await Authorization.decideAuthorizationRequest(ADMIN_TOKEN, {
+            request_id: submitted.request_id,
+            approved: true,
+            role: 'consumer'
+        }, optionsB);
+        assert.strictEqual(decision.request.status, 'approved');
+
+        // The requester, connected to node A, still gets the notification.
+        const approved = await approvedPromise;
+        assert.strictEqual(approved.request_id, submitted.request_id);
+        assert.strictEqual(approved.realm, 'cross-node-auth-realm');
+
+        // The approved token authenticates against node A too (settings sync).
+        await delay(300);
+        clientSocket = await connect(nodeA.port);
+        const granted = await authenticate(clientSocket, { token: 'cross-node-client-token' });
+        assert.strictEqual(granted.ok, true, JSON.stringify(granted));
+        assert.deepStrictEqual(granted.info, { realm: 'cross-node-auth-realm', role: 'consumer' });
+    } finally {
+        if (requesterSocket) requesterSocket.disconnect();
+        if (clientSocket) clientSocket.disconnect();
+        await nodeA.close();
+        await nodeB.close();
+    }
+});
+
+test('live message from a producer on one node reaches a consumer on a peer node', async () => {
+    const hub = new FakeRedisHub();
+    const nodeA = await clusterNode(hub, 'p6-relay');
+    const nodeB = await clusterNode(hub, 'p6-relay');
+
+    let producer;
+    let consumer;
+    let topicConsumer;
+    try {
+        await delay(300);
+
+        producer = await relayFactory(nodeA.port).createProducer('relay-producer');
+        consumer = await relayFactory(nodeB.port).createConsumer('relay-consumer');
+        topicConsumer = await relayFactory(nodeB.port).createConsumer('relay-topic-consumer');
+
+        const received = [];
+        consumer.subscribe(producer.name, 'cross-node-event', function (message) {
+            received.push(message);
+        });
+        const topicReceived = [];
+        topicConsumer.subscribe('org/relay/+/cmd', function (message) {
+            topicReceived.push(message);
+        }, { mode: 'topic' });
+        await delay(400);
+
+        producer.produce('cross-node-event', 'over-the-wire');
+        producer.produce('org/relay/m1/cmd', 'topic-over-the-wire');
+        await delay(900);
+
+        assert.deepStrictEqual(received, ['over-the-wire'],
+            'consumer on peer node must receive exactly one copy');
+        assert.deepStrictEqual(topicReceived, ['topic-over-the-wire'],
+            'topic subscriber on peer node must receive exactly one copy');
+    } finally {
+        if (producer) producer.disconnect();
+        if (consumer) consumer.disconnect();
+        if (topicConsumer) topicConsumer.disconnect();
+        await nodeA.close();
+        await nodeB.close();
+    }
+});
+
+test('realm broadcast reaches subscribers connected to peer nodes', async () => {
+    const hub = new FakeRedisHub();
+    const nodeA = await clusterNode(hub, 'p6-relay-bcast');
+    const nodeB = await clusterNode(hub, 'p6-relay-bcast');
+
+    let producer;
+    let consumer;
+    try {
+        await delay(300);
+
+        producer = await relayFactory(nodeA.port).createProducer('relay-bcast-producer');
+        consumer = await relayFactory(nodeB.port).createConsumer('relay-bcast-consumer');
+
+        const received = [];
+        consumer.subscribe(producer.name, 'bcast-event', function (message) {
+            received.push(message);
+        });
+        await delay(400);
+
+        producer.produce('bcast-event', 'realm-wide', { broadcast: 'realm' });
+        await delay(900);
+
+        assert.deepStrictEqual(received, ['realm-wide'],
+            'broadcast must reach the peer node exactly once');
+    } finally {
+        if (producer) producer.disconnect();
+        if (consumer) consumer.disconnect();
+        await nodeA.close();
+        await nodeB.close();
     }
 });
 
