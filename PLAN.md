@@ -1,6 +1,6 @@
 # tyo-mq — Improvement Plan
 
-Current version: 0.8.x
+Current version: 0.9.x
 Based on: socket.io, Node.js
 
 ---
@@ -323,6 +323,12 @@ the management API.
 
 ## Phase 6 — Clustering & Horizontal Scale
 
+> **Status:** tier 1 done — shared-Redis settings sync (`cluster.enabled`),
+> cluster-wide manager-nonce replay protection, and cross-node durable replay
+> via the shared Redis store (see `docs/CLUSTERING.md`). Remaining: shared
+> subscription registry, socket.io Redis adapter for live cross-node routing,
+> and shared pending authorization requests.
+
 When a single tyo-mq node isn't enough (high connection count or high
 throughput), multiple nodes share state via a Redis pub/sub backbone:
 
@@ -344,7 +350,8 @@ throughput), multiple nodes share state via a Redis pub/sub backbone:
 | 0.5.x | Phase 2 (persistence) | No — durable is opt-in per subscription |
 | 0.6.x | Phase 3 (ACK + DLQ) | Minor — new ACK message in protocol |
 | 0.8.x | Phase 4 (topics + groups) | No — topic mode is opt-in |
-| 0.9.x | Phase 5 (management API) | No |
+| 0.9.x | Phase 6 tier 1 (cluster settings sync) | No — cluster is opt-in |
+| 0.10.x | Phase 5 (management API) | No |
 | 1.0.0 | All phases stable | Semantic versioning from here |
 
 Auth is always backwards-compatible when `auth.enabled: false` (default for
