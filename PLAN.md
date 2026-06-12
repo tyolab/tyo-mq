@@ -1,6 +1,6 @@
 # tyo-mq — Improvement Plan
 
-Current version: 0.9.x
+Current version: 0.10.x
 Based on: socket.io, Node.js
 
 ---
@@ -283,41 +283,52 @@ producer.produce('event', data, { broadcast: 'group', group: 'workers' })
 
 ## Phase 5 — Observability & Management API
 
-### 5.1 REST Management API
+> **Revised:** the original full REST management API is dropped. Control
+> (write) operations stay on the signed socket command channel — already
+> implemented during Phases 1–3 (`AUTH_MANAGEMENT_COMMAND`, authorization
+> request flow), which keeps the admin token off the wire. HTTP is used only
+> for what genuinely needs it: health checks, Prometheus scraping, and
+> read-only inspection.
+>
+> **Status:** done — opt-in `http_api: { enabled: true }`, served on the
+> same port as the socket server. Remaining: DLQ replay/discard as signed
+> socket commands, and an observability tab in the manager web UI.
 
-A lightweight HTTP API (separate port, default `17353`) for inspection and
-control. Requires an `admin` token (all realms) or a `manager` token
-(scoped to that manager's own realm).
+### 5.1 HTTP Observability Surface (opt-in, read-only)
+
+Disabled by default; no second port. Bearer admin token required (except
+`/health`) when auth is enabled.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/realms` | List realms and connection counts |
-| GET | `/api/realms/{realm}/producers` | List producers (name, online, subscriber count) |
-| GET | `/api/realms/{realm}/consumers` | List consumers (name, online, subscriptions) |
-| GET | `/api/realms/{realm}/queue` | Pending messages per topic/event |
+| GET | `/health` | Liveness: status, version, uptime, cluster node id (no auth) |
+| GET | `/api/stats` | Realms with producer/consumer totals + online counts, subscriptions |
 | GET | `/api/realms/{realm}/dlq` | Dead-letter queue contents |
-| POST | `/api/realms/{realm}/dlq/{msgId}/replay` | Replay a DLQ message |
-| DELETE | `/api/realms/{realm}/dlq/{msgId}` | Discard a DLQ message |
 | GET | `/api/metrics` | Prometheus-format metrics |
+
+DLQ **replay/discard** are write operations and will land on the signed
+socket command channel (`dlq_list` / `dlq_replay` / `dlq_discard`), not HTTP.
 
 ### 5.2 Metrics
 
 Exposed at `GET /api/metrics` (Prometheus text format):
 
 ```
-tyo_mq_connections_total{realm="acme"}
+tyo_mq_connections_total
+tyo_mq_connections_current
 tyo_mq_messages_produced_total{realm="acme", event="cmd"}
 tyo_mq_messages_delivered_total{realm="acme", event="cmd"}
-tyo_mq_messages_queued{realm="acme", event="cmd"}
-tyo_mq_messages_dlq{realm="acme"}
+tyo_mq_messages_queued_total{realm="acme"}
+tyo_mq_messages_dlq_total{realm="acme"}
 tyo_mq_ack_timeout_total{realm="acme"}
 ```
 
 ### 5.3 Admin Web UI (optional, Phase 5 stretch)
 
-Minimal dashboard showing real-time realm/producer/consumer state, queue
-depths, and DLQ. Can be implemented as a simple static HTML page that polls
-the management API.
+The manager web UI (`npm run manager:web`) already covers administration:
+realms, keys, acceptance, authorization requests, tokens, persistence.
+Stretch: an observability tab polling `/api/stats` and the DLQ endpoint for
+real-time state and queue depths.
 
 ---
 

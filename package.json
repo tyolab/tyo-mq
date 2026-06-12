@@ -1,15 +1,16 @@
 {
   "name": "tyo-mq",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Distributed Message Pub/Sub Service with socket.io",
   "main": "index.js",
   "scripts": {
-    "test": "node tests/server.test.js && node tests/phase1-auth-realms.test.js && node tests/phase1-roles-authorization.test.js && node tests/phase2-persistence.test.js && node tests/phase3-reliability.test.js && node tests/phase4-routing.test.js && node tests/phase6-cluster.test.js && node tests/remote-namespace.test.js",
+    "test": "node tests/server.test.js && node tests/phase1-auth-realms.test.js && node tests/phase1-roles-authorization.test.js && node tests/phase2-persistence.test.js && node tests/phase3-reliability.test.js && node tests/phase4-routing.test.js && node tests/phase5-http-api.test.js && node tests/phase6-cluster.test.js && node tests/remote-namespace.test.js",
     "test:phase1": "node tests/phase1-auth-realms.test.js",
     "test:phase1:roles": "node tests/phase1-roles-authorization.test.js",
     "test:phase2": "node tests/phase2-persistence.test.js",
     "test:phase3": "node tests/phase3-reliability.test.js",
     "test:phase4": "node tests/phase4-routing.test.js",
+    "test:phase5": "node tests/phase5-http-api.test.js",
     "test:phase6": "node tests/phase6-cluster.test.js",
     "test:remote-namespace": "node tests/remote-namespace.test.js",
     "test:legacy": "node test.js",

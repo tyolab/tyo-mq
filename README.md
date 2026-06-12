@@ -162,6 +162,32 @@ routing is not yet implemented — keep a producer and its subscribers on the
 same node (sticky sessions). See [docs/CLUSTERING.md](docs/CLUSTERING.md) for
 the full setup guide.
 
+## Observability (opt-in HTTP API)
+
+A read-only HTTP surface can be enabled at startup, served on the **same
+port** as the socket server (no second port to firewall). It is off by
+default — without the option, no HTTP endpoint exists.
+
+```json
+{ "http_api": { "enabled": true } }
+```
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /health` | none | Liveness for load balancers: status, version, uptime, cluster node id |
+| `GET /api/metrics` | Bearer admin token* | Prometheus text format: produced/delivered/queued/DLQ/ack-timeout counters, connection counts |
+| `GET /api/stats` | Bearer admin token | Per-realm producer/consumer totals and online counts, subscription counts |
+| `GET /api/realms/{realm}/dlq` | Bearer admin token | Dead-letter queue contents for the realm |
+
+\* When auth is disabled, no token is needed. `http_api.metrics_auth: false`
+opens `/api/metrics` for scrapers that cannot send a token (Prometheus itself
+supports `authorization: { credentials: ... }` in the scrape config, so the
+default is to require it). Individual endpoints can be switched off with
+`health: false`, `metrics: false`, or `stats: false`.
+
+Management (write) operations intentionally stay on the signed socket
+command channel — the HTTP surface is read-only by design.
+
 ## Demo
 
 ### Start the TYO-MQ server
