@@ -9,7 +9,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 
-var port = parseInt(process.env.TYO_MQ_MANAGER_WEB_PORT, 10) || 8080;
+var port = parseInt(process.env.TYO_MQ_MANAGER_WEB_PORT, 10) || 18080;
 var root = path.resolve(__dirname, '..', 'web', 'client');
 
 for (var i = 2; i < process.argv.length; i++) {
