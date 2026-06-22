@@ -253,6 +253,82 @@ test('auth accepts HS256 JWT tokens with realm and role claims', async () => {
     }
 });
 
+test('auth verifies a JWT against the realm manager_key (no global jwt_secret)', async () => {
+    const managerKey = 'alpha-realm-manager-key';
+    const token = createJwt({
+        realm: 'alpha',
+        role: 'both',
+        exp: Math.floor(Date.now() / 1000) + 60
+    }, managerKey);
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            realms: { alpha: { required: true, manager_key: managerKey } }
+        }
+    });
+    const ioClient = require('socket.io-client');
+    const socket = ioClient(`http://127.0.0.1:${authServer.port}`, { transports: ['websocket'] });
+    try {
+        await waitFor(socket, 'connect');
+        socket.emit('AUTHENTICATION', { token });
+        const authOk = await waitFor(socket, 'AUTH_OK');
+        assert.deepStrictEqual(authOk, { realm: 'alpha', role: 'both' });
+    } finally {
+        socket.disconnect();
+        await authServer.close();
+    }
+});
+
+test('auth rejects a JWT signed with the wrong realm key', async () => {
+    const token = createJwt({
+        realm: 'alpha',
+        role: 'both',
+        exp: Math.floor(Date.now() / 1000) + 60
+    }, 'not-the-realm-key');
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            realms: { alpha: { required: true, manager_key: 'alpha-realm-manager-key' } }
+        }
+    });
+    const ioClient = require('socket.io-client');
+    const socket = ioClient(`http://127.0.0.1:${authServer.port}`, { transports: ['websocket'] });
+    try {
+        await waitFor(socket, 'connect');
+        socket.emit('AUTHENTICATION', { token });
+        const fail = await waitFor(socket, 'AUTH_FAIL');
+        assert.strictEqual(fail.code, 401);
+    } finally {
+        socket.disconnect();
+        await authServer.close();
+    }
+});
+
+test('auth rejects a realm JWT when the realm has no manager_key and no global secret', async () => {
+    const token = createJwt({
+        realm: 'alpha',
+        role: 'both',
+        exp: Math.floor(Date.now() / 1000) + 60
+    }, 'some-secret');
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            realms: { alpha: { required: true } }
+        }
+    });
+    const ioClient = require('socket.io-client');
+    const socket = ioClient(`http://127.0.0.1:${authServer.port}`, { transports: ['websocket'] });
+    try {
+        await waitFor(socket, 'connect');
+        socket.emit('AUTHENTICATION', { token });
+        const fail = await waitFor(socket, 'AUTH_FAIL');
+        assert.strictEqual(fail.code, 401);
+    } finally {
+        socket.disconnect();
+        await authServer.close();
+    }
+});
+
 test('server generates missing admin token in .env and helper authenticates with it', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tyo-mq-auth-'));
     const envFile = path.join(tmpDir, '.env');
