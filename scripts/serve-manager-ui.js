@@ -29,7 +29,9 @@ var types = {
     '.html': 'text/html; charset=utf-8',
     '.js': 'application/javascript; charset=utf-8',
     '.json': 'application/json; charset=utf-8',
-    '.map': 'application/json; charset=utf-8'
+    '.map': 'application/json; charset=utf-8',
+    '.ico': 'image/x-icon',
+    '.png': 'image/png'
 };
 
 function send(res, status, body, contentType) {

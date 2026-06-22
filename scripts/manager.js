@@ -89,6 +89,7 @@ function printMenu() {
     console.log('19. List dead-letter queue');
     console.log('20. Replay dead-letter message');
     console.log('21. Discard dead-letter message');
+    console.log('22. Remove realm');
     console.log('0. Exit');
 }
 
@@ -130,6 +131,20 @@ async function renameRealm() {
 
     await managementCommand({command: 'rename_realm', from: from, to: to});
     console.log('Renamed realm ' + from + ' -> ' + to);
+}
+
+async function removeRealm() {
+    var realm = await ask('Realm to remove: ');
+    if (!realm)
+        return console.log('No realm name provided.');
+
+    var confirm = await ask('Type the realm name again to confirm removal: ');
+    if (confirm !== realm)
+        return console.log('Realm name did not match — removal cancelled.');
+
+    var response = await managementCommand({command: 'remove_realm', realm: realm});
+    var removed = response.removed_tokens ? (' (' + response.removed_tokens + ' token(s) removed)') : '';
+    console.log('Removed realm ' + realm + removed);
 }
 
 async function setRealmAuth(required) {
@@ -305,6 +320,7 @@ async function handleChoice(choice) {
     else if (choice === '19') await listDlq();
     else if (choice === '20') await replayDlq();
     else if (choice === '21') await discardDlq();
+    else if (choice === '22') await removeRealm();
     else console.log('Unknown choice: ' + choice);
     return true;
 }

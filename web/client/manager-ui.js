@@ -384,12 +384,34 @@
         });
       });
 
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'danger';
+      remove.textContent = 'Remove realm';
+      // Structural realms are never removable.
+      remove.disabled = (name === 'default' || name === '*');
+      remove.addEventListener('click', function () {
+        var typed = window.prompt(
+          'This permanently removes realm "' + name + '" and any tokens scoped to it.\n\n' +
+          'Type the realm name to confirm:');
+        if (typed === null)
+          return; // cancelled
+        if (typed.trim() !== name) {
+          setStatus('Realm name did not match — removal cancelled', true);
+          return;
+        }
+        handle(function () {
+          return removeRealm(name);
+        });
+      });
+
       row.appendChild(detail);
       row.appendChild(pill);
       row.appendChild(toggle);
       row.appendChild(generate);
       row.appendChild(copy);
       row.appendChild(clear);
+      row.appendChild(remove);
       els.realmsList.appendChild(row);
 
       // Connection access: consumer pre-shared key + producer acceptance.
@@ -702,6 +724,18 @@
     });
     setSettings(response.settings);
     setStatus('Updated realm ' + realm);
+  }
+
+  async function removeRealm(realm) {
+    var response = await managementCommand({
+      command: 'remove_realm',
+      realm: realm
+    });
+    saveLocalRealmManagerKey(realm, '');
+    saveLocalRealmPsk(realm, '');
+    setSettings(response.settings);
+    var removed = response.removed_tokens ? (' (' + response.removed_tokens + ' token(s) removed)') : '';
+    setStatus('Removed realm ' + realm + removed);
   }
 
   async function setRealmManagerKey(realm, managerKey) {
