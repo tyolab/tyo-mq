@@ -663,6 +663,43 @@ test('manager sends signed realm management commands to server', async () => {
     }
 });
 
+test('reload_settings re-reads the watched file from disk on demand', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tyo-mq-reload-'));
+    const settingsFile = path.join(tmpDir, 'settings.json');
+    const adminToken = 'secret-admin';
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            tokens: [
+                { token: adminToken, realm: '*', role: 'admin' }
+            ]
+        }
+    });
+    const options = {host: '127.0.0.1', port: authServer.port, protocol: 'http'};
+
+    try {
+        authServer.server.loadSettings(settingsFile);
+
+        // Mutate the file directly, as if an operator edited it out-of-band.
+        const current = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+        current.auth = current.auth || {};
+        current.auth.realms = current.auth.realms || {};
+        current.auth.realms['disk-edited-realm'] = { required: false };
+        fs.writeFileSync(settingsFile, JSON.stringify(current, null, 2));
+
+        // A forced reload pulls the on-disk change into the live settings.
+        const reloaded = await Authorization.authManagementCommand(adminToken, {
+            command: 'reload_settings'
+        }, options);
+        assert.ok(reloaded.settings.realms['disk-edited-realm'],
+            'reload_settings should surface the realm added on disk');
+        assert.strictEqual(reloaded.settings.realms['disk-edited-realm'].required, false);
+    } finally {
+        await authServer.close();
+        fs.rmSync(tmpDir, {recursive: true, force: true});
+    }
+});
+
 test('manager removes a realm and drops its scoped tokens', async () => {
     const adminToken = 'secret-admin';
     const authServer = await startServer({
