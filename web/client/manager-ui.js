@@ -22,6 +22,7 @@
     dlqRealm: document.getElementById('dlq-realm'),
     dlqList: document.getElementById('dlq-list'),
     showSettingsBtn: document.getElementById('show-settings-btn'),
+    reloadSettingsBtn: document.getElementById('reload-settings-btn'),
     refreshRealmsBtn: document.getElementById('refresh-realms-btn'),
     addRealmForm: document.getElementById('add-realm-form'),
     newRealm: document.getElementById('new-realm'),
@@ -705,6 +706,12 @@
     setStatus('Auth settings loaded');
   }
 
+  async function reloadSettingsFromDisk() {
+    var response = await managementCommand({command: 'reload_settings'});
+    setSettings(response.settings);
+    setStatus('Server reloaded settings from disk');
+  }
+
   async function connectManager() {
     els.connectBtn.disabled = true;
     try {
@@ -934,6 +941,10 @@
 
   els.showSettingsBtn.addEventListener('click', function () {
     handle(refreshSettings);
+  });
+
+  els.reloadSettingsBtn.addEventListener('click', function () {
+    handle(reloadSettingsFromDisk);
   });
 
   els.mainTabBtn.addEventListener('click', function () {
