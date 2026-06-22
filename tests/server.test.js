@@ -137,6 +137,108 @@ test('duplicate consumer name is rejected and first consumer still works', async
 });
 
 /**
+ * Unnamed consumers (no app_id) mint a unique ANONYMOUS-<uuid> name client-side,
+ * so two of them never collide on the shared 'ANONYMOUS' name — both register
+ * and stay connected in a realm that allows anonymous (the 'default' realm).
+ */
+test('unnamed consumers get unique anonymous names and coexist', async () => {
+    const client = mq();
+
+    const first  = await client.createConsumer();
+    const second = await client.createConsumer();
+    await delay(800); // let both registrations settle / any rejection arrive
+
+    assert.ok(first.name.indexOf('ANONYMOUS-') === 0,
+        `unnamed consumer should be named ANONYMOUS-<uuid>, got: ${first.name}`);
+    assert.ok(second.name.indexOf('ANONYMOUS-') === 0,
+        `unnamed consumer should be named ANONYMOUS-<uuid>, got: ${second.name}`);
+    assert.notStrictEqual(first.name, second.name,
+        'two unnamed consumers must get distinct names');
+    assert.ok(first.socket && first.socket.connected, 'first unnamed consumer should stay connected');
+    assert.ok(second.socket && second.socket.connected, 'second unnamed consumer should stay connected');
+
+    first.disconnect();
+    second.disconnect();
+});
+
+/**
+ * A realm may forbid anonymous consumers (allow_anonymous:false). An unnamed
+ * consumer (minted as ANONYMOUS-<uuid>) landing there must be rejected with an
+ * ERROR and disconnected, forcing clients to set a unique app_id.
+ */
+test('anonymous consumers are rejected when the realm disallows them', async () => {
+    const DENY_PORT = 17355;
+    const denyServer = new TyoMQServer({
+        port: DENY_PORT,
+        idle_eviction: { enabled: false },
+        auth: { realms: { 'default': { allow_anonymous: false } } }
+    });
+    denyServer.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop };
+    denyServer.start(DENY_PORT);
+
+    const client = new Factory({ host: '127.0.0.1', port: DENY_PORT, protocol: 'http' });
+
+    try {
+        const consumer = await client.createConsumer(); // unnamed -> ANONYMOUS-<uuid>
+        assert.ok(consumer.name.indexOf('ANONYMOUS-') === 0, 'unnamed consumer should be ANONYMOUS-<uuid>');
+
+        let errorReceived = null;
+        let disconnected = false;
+        consumer.socket.on('ERROR', (msg) => { errorReceived = msg; });
+        consumer.socket.on('disconnect', () => { disconnected = true; });
+
+        await delay(800); // let the server reject the registration
+
+        assert.ok(errorReceived, 'anonymous consumer should receive an ERROR');
+        assert.strictEqual(errorReceived.code, -4, 'rejection should use the anonymous-not-allowed code');
+        assert.ok(disconnected, 'anonymous consumer should be disconnected by the server');
+
+        consumer.disconnect();
+    } finally {
+        denyServer.stopIdleEviction();
+    }
+});
+
+/**
+ * Idle eviction: an offline consumer entry is purged after its grace TTL so the
+ * mapping tables don't grow without bound, while a live consumer is never evicted.
+ */
+test('idle eviction removes offline consumers after the TTL', async () => {
+    const EV_PORT = 17354;
+    const evServer = new TyoMQServer({ port: EV_PORT, idle_eviction: { ttl_ms: 50, interval_ms: 10000 } });
+    evServer.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop };
+    evServer.start(EV_PORT);
+
+    const client = new Factory({ host: '127.0.0.1', port: EV_PORT, protocol: 'http' });
+    const NAME = 'evict-test-consumer';
+
+    try {
+        const consumer = await client.createConsumer(NAME);
+        await delay(300); // let registration settle
+
+        const realmOf = (stats) => stats.realms['default'] || { consumers: { total: 0 } };
+        assert.strictEqual(realmOf(evServer.getStats()).consumers.total, 1,
+            'consumer should be registered while connected');
+
+        // A live consumer must NOT be evicted, even past the TTL.
+        await delay(120);
+        evServer.sweepIdleRegistrations();
+        assert.strictEqual(realmOf(evServer.getStats()).consumers.total, 1,
+            'connected consumer should never be evicted');
+
+        // Disconnect, wait past the TTL, then sweep — the entry should be gone.
+        consumer.disconnect();
+        await delay(150); // > ttl_ms (50)
+        const removed = evServer.sweepIdleRegistrations();
+        assert.ok(removed >= 1, 'sweep should report at least one eviction');
+        assert.strictEqual(realmOf(evServer.getStats()).consumers.total, 0,
+            'offline consumer should be evicted after the TTL');
+    } finally {
+        evServer.stopIdleEviction();
+    }
+});
+
+/**
  * PING / PONG: server responds to PING with a PONG payload containing the
  * original message fields plus `pong` and `timestamp`.
  */
