@@ -663,6 +663,52 @@ test('manager sends signed realm management commands to server', async () => {
     }
 });
 
+test('manager removes a realm and drops its scoped tokens', async () => {
+    const adminToken = 'secret-admin';
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            tokens: [
+                { token: adminToken, realm: '*', role: 'admin' },
+                { token: 'doomed-client-token', realm: 'doomed-realm', role: 'both' }
+            ]
+        }
+    });
+    const options = {host: '127.0.0.1', port: authServer.port, protocol: 'http'};
+
+    try {
+        await Authorization.authManagementCommand(adminToken, {
+            command: 'add_realm',
+            realm: 'doomed-realm',
+            required: true
+        }, options);
+
+        // Removing a non-existent realm reports 404.
+        const missing = await Authorization.authManagementCommand(adminToken, {
+            command: 'remove_realm',
+            realm: 'no-such-realm'
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(missing.code, 404);
+
+        // The structural 'default' and '*' realms cannot be removed.
+        const guardedDefault = await Authorization.authManagementCommand(adminToken, {
+            command: 'remove_realm',
+            realm: 'default'
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(guardedDefault.code, 400);
+
+        // Removing the realm drops its config and any tokens scoped to it.
+        const removed = await Authorization.authManagementCommand(adminToken, {
+            command: 'remove_realm',
+            realm: 'doomed-realm'
+        }, options);
+        assert.ok(!removed.settings.realms['doomed-realm']);
+        assert.strictEqual(removed.removed_tokens, 1);
+    } finally {
+        await authServer.close();
+    }
+});
+
 test('manager sends signed persistence management commands to server', async () => {
     const adminToken = 'secret-admin';
     const authServer = await startServer({
