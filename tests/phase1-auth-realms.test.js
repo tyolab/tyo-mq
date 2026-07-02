@@ -876,6 +876,51 @@ test('manager sends signed persistence management commands to server', async () 
     }
 });
 
+test('manager sets external auth via signed management command', async () => {
+    const adminToken = 'secret-admin';
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            tokens: [ { token: adminToken, realm: '*', role: 'admin' } ]
+        }
+    });
+    const options = {host: '127.0.0.1', port: authServer.port, protocol: 'http'};
+
+    try {
+        const set = await Authorization.authManagementCommand(adminToken, {
+            command: 'set_external_auth',
+            auth_url: 'https://tyoman.example/api/v1/mq-auth',
+            auth_secret: 'cb-secret'
+        }, options);
+        assert.strictEqual(set.settings.auth_url, 'https://tyoman.example/api/v1/mq-auth');
+        assert.strictEqual(set.settings.auth_secret, '<configured>');
+
+        // Omitting auth_secret keeps the current one (the UI cannot read it back).
+        const keep = await Authorization.authManagementCommand(adminToken, {
+            command: 'set_external_auth',
+            auth_url: 'https://tyoman.example/api/v1/mq-auth'
+        }, options);
+        assert.strictEqual(keep.settings.auth_secret, '<configured>');
+
+        const bad = await Authorization.authManagementCommand(adminToken, {
+            command: 'set_external_auth',
+            auth_url: 'not a url'
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(bad.code, 400);
+
+        // Explicit empty strings clear both.
+        const cleared = await Authorization.authManagementCommand(adminToken, {
+            command: 'set_external_auth',
+            auth_url: '',
+            auth_secret: ''
+        }, options);
+        assert.strictEqual(cleared.settings.auth_url, undefined);
+        assert.strictEqual(cleared.settings.auth_secret, undefined);
+    } finally {
+        await authServer.close();
+    }
+});
+
 // --- External auth (auth_url) as fallback for locally unknown tokens ---
 
 /**
