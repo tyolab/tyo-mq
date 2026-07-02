@@ -94,11 +94,19 @@ Required payload:
 
 ## External Auth
 
-If `auth.auth_url` is set, the server posts the presented token to that URL:
+If `auth.auth_url` is set, tokens that no local credential recognizes (per-realm
+JWT, global `jwt_secret`, static `auth.tokens`) are posted to that URL as a
+fallback. Local credentials are always checked first, so enabling an external
+validator never breaks already-configured tokens.
 
 ```json
-{ "token": "..." }
+{ "token": "...", "realm": "tyolab" }
 ```
+
+`realm` is the realm the client declared in its `AUTHENTICATION` message, when
+present. If `auth.auth_secret` is set, the request carries it in an
+`X-MQ-Auth-Secret` header so the validator can refuse token-probing from anyone
+other than this server.
 
 The endpoint should return:
 
