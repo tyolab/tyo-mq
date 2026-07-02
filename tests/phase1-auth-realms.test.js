@@ -10,6 +10,7 @@ const assert = require('assert');
 const childProcess = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
 const Authorization = require('../lib/authorization');
@@ -871,6 +872,139 @@ test('manager sends signed persistence management commands to server', async () 
         }, options).then(() => null).catch(err => err.response);
         assert.strictEqual(invalid.code, 400);
     } finally {
+        await authServer.close();
+    }
+});
+
+// --- External auth (auth_url) as fallback for locally unknown tokens ---
+
+/**
+ * Start a stub external validator. `respond(req, body)` returns the object to
+ * send back (or {status, json}). Records every request's headers + parsed body.
+ */
+function startAuthStub(respond) {
+    return new Promise((resolve) => {
+        const requests = [];
+        const server = http.createServer((req, res) => {
+            let raw = '';
+            req.on('data', (chunk) => { raw += chunk; });
+            req.on('end', () => {
+                const body = raw ? JSON.parse(raw) : {};
+                requests.push({ headers: req.headers, body });
+                const out = respond(req, body) || {};
+                res.writeHead(out.status || 200, { 'content-type': 'application/json' });
+                res.end(JSON.stringify(out.json || out));
+            });
+        });
+        server.listen(0, '127.0.0.1', () => {
+            resolve({
+                url: `http://127.0.0.1:${server.address().port}/mq-auth`,
+                requests,
+                close: () => new Promise(res => server.close(res)),
+            });
+        });
+    });
+}
+
+test('static tokens keep working when auth_url is configured', async () => {
+    // Local credentials must be checked before the external validator, so
+    // enabling auth_url cannot break already-provisioned tokens.
+    const stub = await startAuthStub(() => ({ ok: false }));
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            auth_url: stub.url,
+            tokens: [ { token: 'secret-acme-prod', realm: 'acme', role: 'producer' } ]
+        }
+    });
+    const ioClient = require('socket.io-client');
+    const socket = ioClient(`http://127.0.0.1:${authServer.port}`, { transports: ['websocket'] });
+
+    try {
+        await waitFor(socket, 'connect');
+        socket.emit('AUTHENTICATION', { token: 'secret-acme-prod' });
+        const ok = await waitFor(socket, 'AUTH_OK');
+        assert.deepStrictEqual(ok, { realm: 'acme', role: 'producer' });
+        assert.strictEqual(stub.requests.length, 0);
+    } finally {
+        socket.disconnect();
+        await authServer.close();
+        await stub.close();
+    }
+});
+
+test('unknown tokens fall back to auth_url with secret header and realm', async () => {
+    const stub = await startAuthStub((req, body) => (
+        body.token === 'per-machine-tok'
+            ? { realm: 'acme', role: 'both', ok: true }
+            : { ok: false }
+    ));
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            auth_url: stub.url,
+            auth_secret: 'cb-secret',
+            tokens: [ { token: 'secret-acme-prod', realm: 'acme', role: 'producer' } ]
+        }
+    });
+    const ioClient = require('socket.io-client');
+    const socket = ioClient(`http://127.0.0.1:${authServer.port}`, { transports: ['websocket'] });
+
+    try {
+        await waitFor(socket, 'connect');
+        socket.emit('AUTHENTICATION', { token: 'per-machine-tok', realm: 'acme' });
+        const ok = await waitFor(socket, 'AUTH_OK');
+        assert.deepStrictEqual(ok, { realm: 'acme', role: 'both' });
+        assert.strictEqual(stub.requests.length, 1);
+        assert.strictEqual(stub.requests[0].headers['x-mq-auth-secret'], 'cb-secret');
+        assert.deepStrictEqual(stub.requests[0].body, { token: 'per-machine-tok', realm: 'acme' });
+    } finally {
+        socket.disconnect();
+        await authServer.close();
+        await stub.close();
+    }
+});
+
+test('auth_url rejection fails authentication', async () => {
+    const stub = await startAuthStub(() => ({ ok: false }));
+    const authServer = await startServer({
+        auth: { enabled: true, auth_url: stub.url }
+    });
+    const ioClient = require('socket.io-client');
+    const socket = ioClient(`http://127.0.0.1:${authServer.port}`, { transports: ['websocket'] });
+
+    try {
+        await waitFor(socket, 'connect');
+        socket.emit('AUTHENTICATION', { token: 'revoked-tok', realm: 'acme' });
+        const fail = await waitFor(socket, 'AUTH_FAIL');
+        assert.strictEqual(fail.code, 401);
+        assert.strictEqual(stub.requests.length, 1);
+    } finally {
+        socket.disconnect();
+        await authServer.close();
+        await stub.close();
+    }
+});
+
+test('jwt_secret failure falls through to static tokens', async () => {
+    // A configured global jwt_secret must not shadow the static token list.
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            jwt_secret: 'global-jwt-secret',
+            tokens: [ { token: 'secret-acme-prod', realm: 'acme', role: 'producer' } ]
+        }
+    });
+    const ioClient = require('socket.io-client');
+    const socket = ioClient(`http://127.0.0.1:${authServer.port}`, { transports: ['websocket'] });
+
+    try {
+        await waitFor(socket, 'connect');
+        socket.emit('AUTHENTICATION', { token: 'secret-acme-prod' });
+        const ok = await waitFor(socket, 'AUTH_OK');
+        assert.deepStrictEqual(ok, { realm: 'acme', role: 'producer' });
+    } finally {
+        socket.disconnect();
         await authServer.close();
     }
 });
