@@ -362,6 +362,20 @@ Set or rotate a realm manager key with a global admin signed management command:
 
 Use `manager_key: null` or omit `manager_key` to remove the key.
 
+Configure external token validation (see "External Auth" above) with:
+
+```json
+{
+  "command": "set_external_auth",
+  "auth_url": "https://tyoman.tyo.com.au/api/v1/mq-auth",
+  "auth_secret": "shared-callback-secret"
+}
+```
+
+Omitting `auth_secret` keeps the current one (it is never echoed back — `get`
+shows `"<configured>"`); an empty `auth_url` disables external validation. The
+browser manager exposes this as the "External Auth" panel on the Main tab.
+
 If the server is started with `TYO_MQ_SETTINGS_FILE`, management changes are
 persisted to that file. In Docker, mount that file or its parent directory as a
 volume.

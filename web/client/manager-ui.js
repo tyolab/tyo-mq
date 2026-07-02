@@ -42,6 +42,10 @@
     rejectRequestBtn: document.getElementById('reject-request-btn'),
     refreshTokensBtn: document.getElementById('refresh-tokens-btn'),
     tokensList: document.getElementById('tokens-list'),
+    externalAuthForm: document.getElementById('external-auth-form'),
+    externalAuthUrl: document.getElementById('external-auth-url'),
+    externalAuthSecret: document.getElementById('external-auth-secret'),
+    disableExternalAuthBtn: document.getElementById('disable-external-auth-btn'),
     settingsOutput: document.getElementById('settings-output'),
     copySettingsBtn: document.getElementById('copy-settings-btn'),
     refreshPersistenceBtn: document.getElementById('refresh-persistence-btn'),
@@ -285,7 +289,18 @@
     els.settingsOutput.textContent = JSON.stringify(settings, null, 2);
     renderRealms();
     renderTokens();
+    renderExternalAuth();
     renderPersistence();
+  }
+
+  function renderExternalAuth() {
+    els.externalAuthUrl.value = (settings && settings.auth_url) || '';
+    // The secret is never echoed back (the server masks it); a blank input
+    // means "keep the current one".
+    els.externalAuthSecret.value = '';
+    els.externalAuthSecret.placeholder = (settings && settings.auth_secret)
+      ? 'configured — leave blank to keep'
+      : 'not set';
   }
 
   function setActiveTab(name) {
@@ -985,6 +1000,36 @@
       els.newRealm.value = '';
       setSettings(response.settings);
       setStatus('Added realm ' + realm);
+    });
+  });
+
+  els.externalAuthForm.addEventListener('submit', function (event) {
+    event.preventDefault();
+    handle(async function () {
+      var url = els.externalAuthUrl.value.trim();
+      if (!url)
+        throw new Error('Validation URL is required — use Disable to turn external auth off');
+      var body = {command: 'set_external_auth', auth_url: url};
+      var secret = els.externalAuthSecret.value;
+      if (secret)
+        body.auth_secret = secret;
+      var response = await managementCommand(body);
+      setSettings(response.settings);
+      setStatus('External auth updated');
+    });
+  });
+
+  els.disableExternalAuthBtn.addEventListener('click', function () {
+    handle(async function () {
+      var confirmed = window.confirm(
+        'Disable external token validation?\n\n' +
+        'Tokens unknown to this server will be rejected without consulting the ' +
+        'external validator, and the stored callback secret is cleared.');
+      if (!confirmed)
+        return;
+      var response = await managementCommand({command: 'set_external_auth', auth_url: '', auth_secret: ''});
+      setSettings(response.settings);
+      setStatus('External auth disabled');
     });
   });
 
