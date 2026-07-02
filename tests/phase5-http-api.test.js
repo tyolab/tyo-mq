@@ -39,6 +39,33 @@ function httpGet(port, pathname, headers) {
     });
 }
 
+function httpPost(port, pathname, body, headers) {
+    return new Promise((resolve) => {
+        const payload = body === undefined
+            ? ''
+            : (typeof body === 'string' ? body : JSON.stringify(body));
+        const req = http.request({
+            host: '127.0.0.1',
+            port: port,
+            path: pathname,
+            method: 'POST',
+            headers: Object.assign({
+                'content-type': 'application/json',
+                'content-length': Buffer.byteLength(payload)
+            }, headers || {}),
+            timeout: 1500
+        }, (res) => {
+            let data = '';
+            res.setEncoding('utf8');
+            res.on('data', (chunk) => { data += chunk; });
+            res.on('end', () => resolve({ status: res.statusCode, body: data }));
+        });
+        req.on('timeout', () => { req.destroy(); resolve({ status: null, body: '' }); });
+        req.on('error', () => resolve({ status: null, body: '' }));
+        req.end(payload);
+    });
+}
+
 test('http api is disabled by default', async () => {
     const server = await startServer({});
     try {
@@ -299,6 +326,39 @@ test('dlq management commands list, replay, and discard messages', async () => {
             msg_id: 'no-such-id'
         }, options).then(() => null).catch(err => err.response);
         assert.strictEqual(missing.code, 404);
+    } finally {
+        await server.close();
+    }
+});
+
+test('create-realm endpoint is not served when no management token is configured', async () => {
+    const server = await startServer({
+        http_api: { enabled: true },
+        auth: { enabled: true, tokens: [{ token: 'admin-tok', realm: '*', role: 'admin' }] }
+    });
+    try {
+        const res = await httpPost(server.port, '/api/realms',
+            { realm: 'apps:tyoman:acme', manager_key: 'k' },
+            { authorization: 'Bearer admin-tok' });
+        assert.strictEqual(res.status, 404, 'no management_tokens => endpoint disabled: ' + res.body);
+    } finally {
+        await server.close();
+    }
+});
+
+test('create-realm endpoint does not exist when http_api is disabled', async () => {
+    const server = await startServer({
+        auth: {
+            enabled: true,
+            management_tokens: [{ token: 'mgmt-tok', realm_prefix: 'apps:tyoman:' }]
+        }
+    });
+    try {
+        const res = await httpPost(server.port, '/api/realms',
+            { realm: 'apps:tyoman:acme', manager_key: 'k' },
+            { authorization: 'Bearer mgmt-tok' });
+        assert.notStrictEqual(res.status, 200, 'no http_api => no endpoint');
+        assert.notStrictEqual(res.status, 404, 'no http_api => handler never reached (bare 403)');
     } finally {
         await server.close();
     }
