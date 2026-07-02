@@ -394,4 +394,115 @@ test('create-realm requires a valid management bearer token', async () => {
     }
 });
 
+test('create-realm creates an in-prefix realm and stores its manager_key', async () => {
+    const mgmtToken = 'mgmt-create-token';
+    const server = await startServer({
+        http_api: { enabled: true },
+        auth: {
+            enabled: true,
+            management_tokens: [{ token: mgmtToken, realm_prefix: 'apps:tyoman:' }]
+        }
+    });
+    const auth = { authorization: 'Bearer ' + mgmtToken };
+    try {
+        const created = await httpPost(server.port, '/api/realms',
+            { realm: 'apps:tyoman:acme', manager_key: 'key-one' }, auth);
+        assert.strictEqual(created.status, 200, created.body);
+        const body = JSON.parse(created.body);
+        assert.strictEqual(body.ok, true);
+        assert.strictEqual(body.realm, 'apps:tyoman:acme');
+        assert.strictEqual(body.created, true);
+        assert.strictEqual(body.manager_key_configured, true);
+        assert.ok(!('manager_key' in body), 'manager_key must never be echoed');
+
+        const realms = server.server.settings.get('auth').realms || {};
+        assert.strictEqual(realms['apps:tyoman:acme'].manager_key, 'key-one');
+        assert.strictEqual(realms['apps:tyoman:acme'].required, true);
+
+        const rotated = await httpPost(server.port, '/api/realms',
+            { realm: 'apps:tyoman:acme', manager_key: 'key-two' }, auth);
+        assert.strictEqual(rotated.status, 200, rotated.body);
+        assert.strictEqual(JSON.parse(rotated.body).created, false);
+        const realmsAfter = server.server.settings.get('auth').realms || {};
+        assert.strictEqual(realmsAfter['apps:tyoman:acme'].manager_key, 'key-two');
+    } finally {
+        await server.close();
+    }
+});
+
+test('create-realm rejects realms outside the token prefix and reserved realms', async () => {
+    const mgmtToken = 'mgmt-prefix-token';
+    const server = await startServer({
+        http_api: { enabled: true },
+        auth: {
+            enabled: true,
+            management_tokens: [{ token: mgmtToken, realm_prefix: 'apps:tyoman:' }]
+        }
+    });
+    const auth = { authorization: 'Bearer ' + mgmtToken };
+    try {
+        const cases = ['org:evil', 'apps:tyoman:', '*', 'default', 'apps:other:x'];
+        for (const realm of cases) {
+            const res = await httpPost(server.port, '/api/realms',
+                { realm: realm, manager_key: 'k' }, auth);
+            assert.strictEqual(res.status, 403, 'realm "' + realm + '" must be 403: ' + res.body);
+        }
+        const realms = server.server.settings.get('auth').realms || {};
+        assert.ok(!realms['org:evil'] && !realms['apps:other:x'], 'no rejected realm should exist');
+    } finally {
+        await server.close();
+    }
+});
+
+test('create-realm validates the request body', async () => {
+    const mgmtToken = 'mgmt-body-token';
+    const server = await startServer({
+        http_api: { enabled: true },
+        auth: {
+            enabled: true,
+            management_tokens: [{ token: mgmtToken, realm_prefix: 'apps:tyoman:' }]
+        }
+    });
+    const auth = { authorization: 'Bearer ' + mgmtToken };
+    try {
+        const noRealm = await httpPost(server.port, '/api/realms', { manager_key: 'k' }, auth);
+        assert.strictEqual(noRealm.status, 400, noRealm.body);
+
+        const noKey = await httpPost(server.port, '/api/realms', { realm: 'apps:tyoman:acme' }, auth);
+        assert.strictEqual(noKey.status, 400, noKey.body);
+
+        const badJson = await httpPost(server.port, '/api/realms', 'not-json{', auth);
+        assert.strictEqual(badJson.status, 400, badJson.body);
+    } finally {
+        await server.close();
+    }
+});
+
+test('create-realm persists the new realm to the settings file', async () => {
+    const os = require('os');
+    const path = require('path');
+    const fs = require('fs');
+    const mgmtToken = 'mgmt-persist-token';
+    const settingsPath = path.join(os.tmpdir(), 'tyo-mq-mgmt-' + process.pid + '-' + Date.now() + '.json');
+    const server = await startServer({
+        http_api: { enabled: true },
+        auth: {
+            enabled: true,
+            management_tokens: [{ token: mgmtToken, realm_prefix: 'apps:tyoman:' }]
+        }
+    });
+    server.server.loadSettings(settingsPath);
+    const auth = { authorization: 'Bearer ' + mgmtToken };
+    try {
+        const res = await httpPost(server.port, '/api/realms',
+            { realm: 'apps:tyoman:persist', manager_key: 'persist-key' }, auth);
+        assert.strictEqual(res.status, 200, res.body);
+        const onDisk = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        assert.strictEqual(onDisk.auth.realms['apps:tyoman:persist'].manager_key, 'persist-key');
+    } finally {
+        await server.close();
+        try { require('fs').unlinkSync(settingsPath); } catch (e) { /* ignore */ }
+    }
+});
+
 run();
