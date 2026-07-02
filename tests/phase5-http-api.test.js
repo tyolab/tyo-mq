@@ -505,4 +505,25 @@ test('create-realm persists the new realm to the settings file', async () => {
     }
 });
 
+test('create-realm rejects an over-limit request body with 400', async () => {
+    const mgmtToken = 'mgmt-oversize-token';
+    const server = await startServer({
+        http_api: { enabled: true },
+        auth: {
+            enabled: true,
+            management_tokens: [{ token: mgmtToken, realm_prefix: 'apps:tyoman:' }]
+        }
+    });
+    const auth = { authorization: 'Bearer ' + mgmtToken };
+    try {
+        // A >64KB body must be rejected with a deliverable 400 (not a torn-down
+        // connection), proving the over-limit branch no longer destroys the socket.
+        const huge = JSON.stringify({ realm: 'apps:tyoman:big', manager_key: 'x'.repeat(70 * 1024) });
+        const res = await httpPost(server.port, '/api/realms', huge, auth);
+        assert.strictEqual(res.status, 400, 'over-limit body must yield a 400: ' + res.body);
+    } finally {
+        await server.close();
+    }
+});
+
 run();
