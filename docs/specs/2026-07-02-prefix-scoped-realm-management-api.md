@@ -116,6 +116,11 @@ one helper (e.g. `runManagementCommand(body)`), and call it from both the socket
 the REST path persists realms identically (survives restart) with no divergent
 logic. Behavior of the socket path is unchanged.
 
+**Implementation note (2026-07-02):** No refactor was needed. `applyAuthManagementCommand`
+already performs the commit (`settings.replace`) and persist (`persistSettings`)
+internally; the socket handler simply calls it. The REST endpoint calls the same
+function, so both paths share commit/persist by construction.
+
 ## Data flow
 
 ```
