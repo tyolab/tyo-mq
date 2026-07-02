@@ -106,6 +106,32 @@
             </div>
             <div id="tokens-list" class="list empty">No tokens loaded</div>
           </div>
+
+          <div class="panel">
+            <div class="section-heading">
+              <h2>External Auth</h2>
+            </div>
+            <p class="panel-note">
+              Tokens no local credential recognizes (realm JWTs, configured tokens)
+              are validated by POSTing them to this URL with the
+              <code>X-MQ-Auth-Secret</code> header. Local credentials are always
+              checked first, so enabling this cannot break existing clients.
+            </p>
+            <form id="external-auth-form" class="stacked-form">
+              <div class="field">
+                <label for="external-auth-url">Validation URL (auth_url)</label>
+                <input id="external-auth-url" type="url" placeholder="https://tyoman.tyo.com.au/api/v1/mq-auth" autocomplete="off">
+              </div>
+              <div class="field">
+                <label for="external-auth-secret">Callback secret (auth_secret)</label>
+                <input id="external-auth-secret" type="password" autocomplete="off" placeholder="not set">
+              </div>
+              <div class="form-actions">
+                <button type="submit">Save</button>
+                <button id="disable-external-auth-btn" class="secondary" type="button">Disable</button>
+              </div>
+            </form>
+          </div>
         </section>
 
         <section class="panel">
