@@ -364,4 +364,34 @@ test('create-realm endpoint does not exist when http_api is disabled', async () 
     }
 });
 
+test('create-realm requires a valid management bearer token', async () => {
+    const mgmtToken = 'mgmt-secret-token';
+    const server = await startServer({
+        http_api: { enabled: true },
+        auth: {
+            enabled: true,
+            tokens: [{ token: 'admin-tok', realm: '*', role: 'admin' }],
+            management_tokens: [{ token: mgmtToken, realm_prefix: 'apps:tyoman:' }]
+        }
+    });
+    try {
+        const noAuth = await httpPost(server.port, '/api/realms',
+            { realm: 'apps:tyoman:acme', manager_key: 'k' });
+        assert.strictEqual(noAuth.status, 401, 'no bearer => 401: ' + noAuth.body);
+
+        const wrong = await httpPost(server.port, '/api/realms',
+            { realm: 'apps:tyoman:acme', manager_key: 'k' },
+            { authorization: 'Bearer nope' });
+        assert.strictEqual(wrong.status, 401, 'wrong token => 401: ' + wrong.body);
+
+        // The global admin token is NOT accepted on this endpoint.
+        const admin = await httpPost(server.port, '/api/realms',
+            { realm: 'apps:tyoman:acme', manager_key: 'k' },
+            { authorization: 'Bearer admin-tok' });
+        assert.strictEqual(admin.status, 401, 'admin token not accepted here => 401: ' + admin.body);
+    } finally {
+        await server.close();
+    }
+});
+
 run();
