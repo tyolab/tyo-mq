@@ -46,6 +46,10 @@
     externalAuthUrl: document.getElementById('external-auth-url'),
     externalAuthSecret: document.getElementById('external-auth-secret'),
     disableExternalAuthBtn: document.getElementById('disable-external-auth-btn'),
+    addMgmtTokenForm: document.getElementById('add-mgmt-token-form'),
+    mgmtTokenPrefix: document.getElementById('mgmt-token-prefix'),
+    mgmtTokenReveal: document.getElementById('mgmt-token-reveal'),
+    mgmtTokensList: document.getElementById('mgmt-tokens-list'),
     settingsOutput: document.getElementById('settings-output'),
     copySettingsBtn: document.getElementById('copy-settings-btn'),
     refreshPersistenceBtn: document.getElementById('refresh-persistence-btn'),
@@ -290,7 +294,66 @@
     renderRealms();
     renderTokens();
     renderExternalAuth();
+    renderManagementTokens();
     renderPersistence();
+  }
+
+  function renderManagementTokens() {
+    var entries = (settings && settings.management_tokens) || [];
+    els.mgmtTokensList.innerHTML = '';
+
+    if (entries.length === 0) {
+      els.mgmtTokensList.className = 'list empty';
+      els.mgmtTokensList.textContent = 'No management tokens configured';
+      return;
+    }
+
+    els.mgmtTokensList.className = 'list';
+    entries.forEach(function (entry) {
+      var row = document.createElement('div');
+      row.className = 'token-row';
+
+      var detail = document.createElement('div');
+      detail.className = 'token-detail';
+
+      var title = document.createElement('div');
+      title.className = 'token-title';
+      title.textContent = entry.realm_prefix || '(no prefix)';
+
+      var meta = document.createElement('div');
+      meta.className = 'token-meta';
+      meta.textContent = entry.token_hash
+        ? 'sha256 ' + entry.token_hash.slice(0, 16) + '…'
+        : 'no token';
+
+      detail.appendChild(title);
+      detail.appendChild(meta);
+
+      var revoke = document.createElement('button');
+      revoke.type = 'button';
+      revoke.className = 'danger';
+      revoke.textContent = 'Revoke';
+      revoke.disabled = !entry.token_hash;
+      revoke.addEventListener('click', function () {
+        handle(async function () {
+          var confirmed = window.confirm(
+            'Revoke the management token for prefix "' + (entry.realm_prefix || '?') + '"?\n\n' +
+            'HTTP API callers using it (e.g. tyoman-server realm registration) will get 401s.');
+          if (!confirmed)
+            return;
+          var response = await managementCommand({
+            command: 'revoke_management_token',
+            token_hash: entry.token_hash
+          });
+          setSettings(response.settings);
+          setStatus('Management token revoked');
+        });
+      });
+
+      row.appendChild(detail);
+      row.appendChild(revoke);
+      els.mgmtTokensList.appendChild(row);
+    });
   }
 
   function renderExternalAuth() {
@@ -1016,6 +1079,65 @@
       var response = await managementCommand(body);
       setSettings(response.settings);
       setStatus('External auth updated');
+    });
+  });
+
+  function renderMgmtTokenReveal(prefix, token) {
+    els.mgmtTokenReveal.className = 'hidden-field visible';
+    els.mgmtTokenReveal.innerHTML = '';
+
+    var note = document.createElement('div');
+    note.className = 'token-meta';
+    note.textContent = 'New token for ' + prefix + ' — copy it now, it will not be shown again:';
+
+    var valueRow = document.createElement('div');
+    valueRow.className = 'reveal-row';
+
+    var code = document.createElement('code');
+    code.textContent = token;
+
+    var copy = document.createElement('button');
+    copy.type = 'button';
+    copy.textContent = 'Copy';
+    copy.addEventListener('click', function () {
+      handle(async function () {
+        await copyText(token);
+        setStatus('Management token copied');
+      });
+    });
+
+    var dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.className = 'secondary';
+    dismiss.textContent = 'Dismiss';
+    dismiss.addEventListener('click', function () {
+      els.mgmtTokenReveal.className = 'hidden-field';
+      els.mgmtTokenReveal.innerHTML = '';
+    });
+
+    valueRow.appendChild(code);
+    valueRow.appendChild(copy);
+    valueRow.appendChild(dismiss);
+    els.mgmtTokenReveal.appendChild(note);
+    els.mgmtTokenReveal.appendChild(valueRow);
+  }
+
+  els.addMgmtTokenForm.addEventListener('submit', function (event) {
+    event.preventDefault();
+    handle(async function () {
+      var prefix = els.mgmtTokenPrefix.value.trim();
+      if (!prefix)
+        throw new Error('Realm prefix is required (e.g. realm:prefix:)');
+      var token = randomHex(32);
+      var response = await managementCommand({
+        command: 'add_management_token',
+        token: token,
+        realm_prefix: prefix
+      });
+      els.mgmtTokenPrefix.value = '';
+      renderMgmtTokenReveal(prefix, token);
+      setSettings(response.settings);
+      setStatus('Management token added for ' + prefix);
     });
   });
 

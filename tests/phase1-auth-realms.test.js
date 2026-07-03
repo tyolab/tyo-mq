@@ -876,6 +876,79 @@ test('manager sends signed persistence management commands to server', async () 
     }
 });
 
+test('manager manages HTTP management tokens via signed commands', async () => {
+    const adminToken = 'secret-admin';
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            tokens: [ { token: adminToken, realm: '*', role: 'admin' } ],
+            management_tokens: [ { token: 'pre-existing-mgmt', realm_prefix: 'apps:legacy:' } ]
+        }
+    });
+    const options = {host: '127.0.0.1', port: authServer.port, protocol: 'http'};
+
+    try {
+        // get masks management tokens: hash + prefix only, never the raw value.
+        const got = await Authorization.authManagementCommand(adminToken, {command: 'get'}, options);
+        assert.strictEqual(got.settings.management_tokens.length, 1);
+        assert.strictEqual(got.settings.management_tokens[0].realm_prefix, 'apps:legacy:');
+        assert.ok(got.settings.management_tokens[0].token_hash);
+        assert.strictEqual(got.settings.management_tokens[0].token, undefined);
+
+        const added = await Authorization.authManagementCommand(adminToken, {
+            command: 'add_management_token',
+            token: 'new-mgmt-token',
+            realm_prefix: 'realm:prefix:'
+        }, options);
+        assert.strictEqual(added.settings.management_tokens.length, 2);
+
+        // The added token authorizes POST /api/realms under its prefix.
+        const create = await new Promise((resolve, reject) => {
+            const req = require('http').request({
+                host: '127.0.0.1', port: authServer.port, path: '/api/realms', method: 'POST',
+                headers: {'content-type': 'application/json', 'authorization': 'Bearer new-mgmt-token'}
+            }, (res) => {
+                let chunks = '';
+                res.on('data', c => { chunks += c; });
+                res.on('end', () => resolve({status: res.statusCode, body: chunks}));
+            });
+            req.on('error', reject);
+            req.end(JSON.stringify({realm: 'realm:prefix:ui-test', manager_key: 'mk-1'}));
+        });
+        assert.strictEqual(create.status, 200, create.body);
+
+        const dup = await Authorization.authManagementCommand(adminToken, {
+            command: 'add_management_token',
+            token: 'new-mgmt-token',
+            realm_prefix: 'apps:other:'
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(dup.code, 409);
+
+        const bad = await Authorization.authManagementCommand(adminToken, {
+            command: 'add_management_token',
+            token: 'x'
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(bad.code, 400);
+
+        const hash = added.settings.management_tokens
+            .find(e => e.realm_prefix === 'realm:prefix:').token_hash;
+        const revoked = await Authorization.authManagementCommand(adminToken, {
+            command: 'revoke_management_token',
+            token_hash: hash
+        }, options);
+        assert.strictEqual(revoked.settings.management_tokens.length, 1);
+        assert.strictEqual(revoked.settings.management_tokens[0].realm_prefix, 'apps:legacy:');
+
+        const missing = await Authorization.authManagementCommand(adminToken, {
+            command: 'revoke_management_token',
+            token_hash: 'deadbeef'
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(missing.code, 404);
+    } finally {
+        await authServer.close();
+    }
+});
+
 test('manager sets external auth via signed management command', async () => {
     const adminToken = 'secret-admin';
     const authServer = await startServer({

@@ -44,7 +44,7 @@ Insert one new branch, highest precedence among the token mechanisms:
 
 ## Backward compatibility (purely additive)
 
-- Static hex tokens (e.g. `apps:tyoman:ft`) are not JWTs → new branch skipped.
+- Static hex tokens (e.g. `realm:prefix:ft`) are not JWTs → new branch skipped.
 - A realm without a `manager_key` → falls through unchanged.
 - A configured global `auth.jwt_secret` still works as a fallback.
 

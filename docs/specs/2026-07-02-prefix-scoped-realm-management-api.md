@@ -14,7 +14,7 @@ settings. Handing tyoman-server that token is over-privileged.
 
 We want a narrow HTTP surface tyoman-server can call, authenticated by a
 credential that may manage **only realms under a configured prefix**
-(`apps:tyoman:`), so tyoman-server can never create or alter realms outside its
+(`realm:prefix:`), so tyoman-server can never create or alter realms outside its
 namespace.
 
 This is sub-project 1 of a 3-part effort (realm↔MQ integration + operator
@@ -59,7 +59,7 @@ New optional config array `auth.management_tokens`:
 {
   "auth": {
     "management_tokens": [
-      { "token": "<shared-secret>", "realm_prefix": "apps:tyoman:" }
+      { "token": "<shared-secret>", "realm_prefix": "realm:prefix:" }
     ]
   }
 }
@@ -84,7 +84,7 @@ returns on non-GET). Add, before the GET-only guard, a route:
 ```
 POST /api/realms
   Authorization: Bearer <management-token>
-  Body (JSON): { "realm": "apps:tyoman:acme", "manager_key": "<hex-secret>" }
+  Body (JSON): { "realm": "realm:prefix:acme", "manager_key": "<hex-secret>" }
 ```
 
 Handler flow:
@@ -126,13 +126,13 @@ function, so both paths share commit/persist by construction.
 ```
 tyoman-server → POST https://mq.tyo.com.au/api/realms
                 Authorization: Bearer <mgmt-token>
-                { realm: "apps:tyoman:acme", manager_key: "…" }
-  → managementTokenForRequest → entry{realm_prefix:"apps:tyoman:"}
-  → realmAllowedForPrefix("apps:tyoman:acme","apps:tyoman:") = true
+                { realm: "realm:prefix:acme", manager_key: "…" }
+  → managementTokenForRequest → entry{realm_prefix:"realm:prefix:"}
+  → realmAllowedForPrefix("realm:prefix:acme","realm:prefix:") = true
   → runManagementCommand(add_realm | set_realm_manager_key)
-  → auth.realms["apps:tyoman:acme"].manager_key set; persisted to settings file
+  → auth.realms["realm:prefix:acme"].manager_key set; persisted to settings file
   → 200 {ok:true, realm, created, manager_key_configured:true}
-Later: a client JWT for apps:tyoman:acme signed with that manager_key → AUTH_OK.
+Later: a client JWT for realm:prefix:acme signed with that manager_key → AUTH_OK.
 ```
 
 ## Error handling
@@ -149,8 +149,8 @@ Later: a client JWT for apps:tyoman:acme signed with that manager_key → AUTH_O
 
 - Management token is a bearer secret compared by hash (like admin tokens); raw
   value never logged or returned.
-- Prefix enforcement is the core guarantee: a `apps:tyoman:` token cannot create,
-  rotate, or otherwise reach `org:*`, `*`, `default`, or a bare `apps:tyoman:`.
+- Prefix enforcement is the core guarantee: a `realm:prefix:` token cannot create,
+  rotate, or otherwise reach `org:*`, `*`, `default`, or a bare `realm:prefix:`.
 - `manager_key` is write-only over this API — never returned (matches the
   existing "manager_key_configured: true" convention).
 - Narrower than the global admin token: cannot change global settings, tokens,
@@ -164,7 +164,7 @@ Later: a client JWT for apps:tyoman:acme signed with that manager_key → AUTH_O
 - Re-POST same realm with a new key → `200 created:false`; old-key JWT now fails,
   new-key JWT succeeds (rotation).
 - Out-of-prefix realm (`org:evil`) → `403`; realm not created.
-- Bare prefix (`apps:tyoman:`), `*`, `default` → `403` (all fail
+- Bare prefix (`realm:prefix:`), `*`, `default` → `403` (all fail
   `realmAllowedForPrefix`); realm not created.
 - Missing/invalid Bearer token → `401`.
 - Global `*` admin token presented to `/api/realms` → `401` (not accepted here).
@@ -173,7 +173,7 @@ Later: a client JWT for apps:tyoman:acme signed with that manager_key → AUTH_O
 
 ## Rollout (user-gated, separate)
 
-Add a `management_tokens` entry (with `realm_prefix: "apps:tyoman:"` and a fresh
+Add a `management_tokens` entry (with `realm_prefix: "realm:prefix:"` and a fresh
 secret) to the tyo-mq settings, sync `lib/server.js` to the VM, and
 `pm2 restart tyo-mq`. Share the secret with tyoman-server (sub-project 2). Run
 `npm test` before deploying.
