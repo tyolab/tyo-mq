@@ -879,6 +879,7 @@ test('manager sends signed persistence management commands to server', async () 
 test('manager manages HTTP management tokens via signed commands', async () => {
     const adminToken = 'secret-admin';
     const authServer = await startServer({
+        http_api: { enabled: true },
         auth: {
             enabled: true,
             tokens: [ { token: adminToken, realm: '*', role: 'admin' } ],
