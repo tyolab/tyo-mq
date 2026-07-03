@@ -174,7 +174,7 @@ Example realm manager key config:
   "auth": {
     "enabled": true,
     "realms": {
-      "apps:tyoman:myorg": {
+      "realm:prefix:myorg": {
         "required": true,
         "manager_key": "realm-manager-shared-secret"
       }

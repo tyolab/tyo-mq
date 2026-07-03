@@ -211,6 +211,23 @@ label {
   font-size: 12px;
 }
 
+.reveal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.reveal-row code {
+  flex: 1;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  word-break: break-all;
+  background: #eef2f6;
+  border-radius: 6px;
+  padding: 8px;
+}
+
 .section-heading {
   display: flex;
   align-items: center;

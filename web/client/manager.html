@@ -132,6 +132,25 @@
               </div>
             </form>
           </div>
+
+          <div class="panel">
+            <div class="section-heading">
+              <h2>Management API Tokens</h2>
+            </div>
+            <p class="panel-note">
+              Bearer tokens for the HTTP management API
+              (<code>POST /api/realms</code>). Each token can only create or
+              rotate realms under its prefix. Tokens are generated in the
+              browser and shown once — copy immediately; the server keeps only
+              a hash.
+            </p>
+            <form id="add-mgmt-token-form" class="inline-form">
+              <input id="mgmt-token-prefix" type="text" placeholder="realm prefix, e.g. realm:prefix:" autocomplete="off">
+              <button type="submit">Generate</button>
+            </form>
+            <div id="mgmt-token-reveal" class="hidden-field"></div>
+            <div id="mgmt-tokens-list" class="list empty">No management tokens loaded</div>
+          </div>
         </section>
 
         <section class="panel">
