@@ -376,6 +376,18 @@ Omitting `auth_secret` keeps the current one (it is never echoed back — `get`
 shows `"<configured>"`); an empty `auth_url` disables external validation. The
 browser manager exposes this as the "External Auth" panel on the Main tab.
 
+Manage HTTP-management-API bearer tokens (`auth.management_tokens`) with:
+
+```json
+{ "command": "add_management_token", "token": "<random hex>", "realm_prefix": "apps:tyoman:" }
+{ "command": "revoke_management_token", "token_hash": "<sha256 from get>" }
+```
+
+`get` never returns raw management tokens — only `{realm_prefix, token_hash}` —
+so revocation is by hash. The browser manager's "Management API Tokens" panel
+generates tokens client-side, shows them once for copying, and lists/revokes
+by prefix + hash.
+
 If the server is started with `TYO_MQ_SETTINGS_FILE`, management changes are
 persisted to that file. In Docker, mount that file or its parent directory as a
 volume.
