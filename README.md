@@ -7,6 +7,8 @@ TYO-MQ is a distributed messaging (pub/sub) service with socket.io.
 
 TYO-MQ supports fire-and-forget pub/sub by default, plus opt-in durable delivery with ACK, retry, and dead-letter handling for messages that must survive disconnects or failed consumers.
 
+**See it in action:** the [tyo-mq-samples](https://github.com/tyolab/tyo-mq-samples) repo has four runnable mini-apps — a job queue with retry and DLQ, a browser chat, IoT telemetry over wildcard topics, and event-driven microservices — plus a cookbook with one self-contained script per feature. Clone, `npm install`, run.
+
 ## Installation
     npm install tyo-mq
 
