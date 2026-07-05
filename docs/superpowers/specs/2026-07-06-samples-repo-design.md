@@ -2,7 +2,8 @@
 
 Date: 2026-07-06
 Status: approved direction from user ("both" — mini-apps first plus feature cookbook);
-mini-app selection made autonomously (user AFK): job queue + browser chat.
+user later asked for all four mini-apps: job queue, browser chat, IoT telemetry,
+and microservices events. Implemented and verified 2026-07-06.
 
 ## Goal
 
@@ -29,10 +30,20 @@ tyo-mq-samples/
       demo.js            # one command: starts server + dispatcher + 2 workers in-process
     chat/
       README.md
-      server.js          # tyo-mq server + tiny static file server
+      server.js          # tyo-mq server + tiny static file server; the client
+                         #   bundle is served straight from node_modules
       public/index.html
       public/app.js      # uses window.mq from the browserified client
-      public/tyo-mq-client.js  # copied from tyo-mq/web/client at install (postinstall)
+    iot-telemetry/
+      README.md
+      demo.js            # devices on org/tyolab/<site>/<device>/telemetry topics,
+                         #   wildcard fleet monitor, cmd topic back to hot devices
+    microservices/
+      README.md
+      demo.js            # starts server, forks the three services, plays storefront
+      services/order-service.js
+      services/inventory-service.js
+      services/email-service.js
   cookbook/
     README.md
     01-hello-pubsub.js
@@ -68,5 +79,3 @@ tyo-mq-samples/
 - Clustering / Redis samples (requires external Redis; mentioned in README with a
   pointer to docs/CLUSTERING.md).
 - Publishing the repo to GitHub — left to the user.
-- IoT and microservices mini-apps — the cookbook's topics sample covers the
-  routing story; full apps can be added later.
