@@ -23,6 +23,7 @@ other languages live in their own repositories:
 | Python | [tyo-mq-client-python](https://github.com/tyolab/tyo-mq-client-python) | `pip install tyo-mq-client` |
 | Go | [tyo-mq-client-go](https://github.com/tyolab/tyo-mq-client-go) | `go get github.com/tyolab/tyo-mq-client-go` |
 | Rust | [tyo-mq-client-rust](https://github.com/tyolab/tyo-mq-client-rust) | crate `tyo-mq-client` (git) |
+| Ruby | [tyo-mq-client-ruby](https://github.com/tyolab/tyo-mq-client-ruby) | `gem install tyo-mq-client` |
 | C/C++ | [tyo-mq-client-cpp](https://github.com/tyolab/tyo-mq-client-cpp) | CMake `FetchContent` |
 | Java | [tyo-mq-client-java](https://github.com/tyolab/tyo-mq-client-java) | Maven `au.com.tyo:tyo-mq-client` |
 | C# / .NET | [tyo-mq-client-csharp](https://github.com/tyolab/tyo-mq-client-csharp) | `dotnet add package TYO_MQ_CLIENT` |
