@@ -12,6 +12,22 @@ TYO-MQ supports fire-and-forget pub/sub by default, plus opt-in durable delivery
 ## Installation
     npm install tyo-mq
 
+## Client libraries
+
+The Node.js client (and the browser bundle) ship in this package. Clients for
+other languages live in their own repositories:
+
+| Language | Repository | Install |
+|----------|------------|---------|
+| Node.js / browser | this repo | `npm install tyo-mq` |
+| Python | [tyo-mq-client-python](https://github.com/tyolab/tyo-mq-client-python) | `pip install tyo-mq-client` |
+| Go | [tyo-mq-client-go](https://github.com/tyolab/tyo-mq-client-go) | `go get github.com/tyolab/tyo-mq-client-go` |
+| Java | [tyo-mq-client-java](https://github.com/tyolab/tyo-mq-client-java) | Maven `au.com.tyo:tyo-mq-client` |
+| C# / .NET | [tyo-mq-client-csharp](https://github.com/tyolab/tyo-mq-client-csharp) | `dotnet add package TYO_MQ_CLIENT` |
+
+All clients speak the same wire protocol; anything a helper doesn't cover is
+one `emit`/`on` away.
+
 ## Creating a messaging server
 
 ```javascript
