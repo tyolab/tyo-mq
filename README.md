@@ -31,6 +31,13 @@ other languages live in their own repositories:
 All clients speak the same wire protocol; anything a helper doesn't cover is
 one `emit`/`on` away.
 
+That claim is verified, not aspirational: the
+[tyo-mq-conformance](https://github.com/tyolab/tyo-mq-conformance) suite runs
+every client above through the same scenarios against a live server — pub/sub
+payload fidelity across every producer/consumer language pair, durable replay,
+manual ACK/retry/dead-lettering, topic wildcards, consumer groups, and auth —
+and publishes the resulting conformance matrix.
+
 ## Creating a messaging server
 
 ```javascript
