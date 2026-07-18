@@ -1,7 +1,7 @@
 # Plan: generic /remote relay + pluggable namespaces
 
 **Date:** 2026-07-18
-**Status:** Plan — answers `docs/specs/2026-07-18-remote-namespace-webrtc-signaling.md`
+**Status:** Phase 1 shipped in 0.14.3; Phase 2 shipped in 0.15.0; Phase 3 parked
 **Components:** `lib/remote-namespace.js`, `lib/server.js`, settings
 
 ## Design goal
