@@ -204,6 +204,208 @@ test('input relay: viewer input.keyboard arrives at agent', async () => {
     viewerSock.disconnect();
 });
 
+// Emit `event` (expected NOT to arrive), then a control event that IS
+// relayed on the same connection; per-connection ordering means once the
+// control arrives, the earlier event would have arrived too if it were
+// going to.
+async function assertNotRelayed(senderSock, receiverSock, event, payload, controlEvent, controlPayload) {
+    let leaked = false;
+    receiverSock.on(event, () => { leaked = true; });
+    const control = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('control event timeout')), 4000);
+        receiverSock.once(controlEvent, () => { clearTimeout(timer); resolve(); });
+    });
+    senderSock.emit(event, payload);
+    senderSock.emit(controlEvent, controlPayload);
+    await control;
+    assert.strictEqual(leaked, false, `'${event}' must not be relayed`);
+}
+
+async function startSessionPair(sessionId, srv) {
+    srv = srv || server;
+    const port = srv === server ? PORT : srv._testPort;
+    const agentTicket = srv.remote.issueTicket({ session_id: sessionId, realm: 'test', machine_id: 'h1', role: 'agent' });
+    const viewerTicket = srv.remote.issueTicket({ session_id: sessionId, realm: 'test', machine_id: 'h1', role: 'viewer' });
+    const { socket: agentSock } = await connectRemote(agentTicket, 'agent', sessionId, port);
+    const { socket: viewerSock } = await connectRemote(viewerTicket, 'viewer', sessionId, port);
+    return { agentSock, viewerSock };
+}
+
+test('WebRTC signaling: ready/offer/answer relay in their directions', async () => {
+    const sessionId = 'sess-rtc-' + Date.now();
+    const { agentSock, viewerSock } = await startSessionPair(sessionId);
+
+    // viewer → agent: rtc.ready starts the handshake
+    const readyAtAgent = waitFor(agentSock, 'rtc.ready');
+    viewerSock.emit('rtc.ready', { viewer: 'v1' });
+    assert.deepStrictEqual(await readyAtAgent, { viewer: 'v1' });
+
+    // agent → viewers: the SDP offer
+    const offerAtViewer = waitFor(viewerSock, 'rtc.offer');
+    agentSock.emit('rtc.offer', { sdp: 'v=0 fake-offer', type: 'offer' });
+    assert.strictEqual((await offerAtViewer).sdp, 'v=0 fake-offer');
+
+    // viewer → agent: the SDP answer
+    const answerAtAgent = waitFor(agentSock, 'rtc.answer');
+    viewerSock.emit('rtc.answer', { sdp: 'v=0 fake-answer', type: 'answer' });
+    assert.strictEqual((await answerAtAgent).sdp, 'v=0 fake-answer');
+
+    agentSock.disconnect();
+    viewerSock.disconnect();
+});
+
+test('WebRTC signaling: rtc.ice routes to the opposite role from both sides', async () => {
+    const sessionId = 'sess-ice-' + Date.now();
+    const { agentSock, viewerSock } = await startSessionPair(sessionId);
+
+    const iceAtAgent = waitFor(agentSock, 'rtc.ice');
+    viewerSock.emit('rtc.ice', { candidate: 'from-viewer' });
+    assert.strictEqual((await iceAtAgent).candidate, 'from-viewer');
+
+    const iceAtViewer = waitFor(viewerSock, 'rtc.ice');
+    agentSock.emit('rtc.ice', { candidate: 'from-agent' });
+    assert.strictEqual((await iceAtViewer).candidate, 'from-agent');
+
+    agentSock.disconnect();
+    viewerSock.disconnect();
+});
+
+test('control events: input.sas and remote.setmonitor relay viewer → agent', async () => {
+    const sessionId = 'sess-ctl-' + Date.now();
+    const { agentSock, viewerSock } = await startSessionPair(sessionId);
+
+    const sasAtAgent = waitFor(agentSock, 'input.sas');
+    viewerSock.emit('input.sas', {});
+    assert.deepStrictEqual(await sasAtAgent, {});
+
+    const monitorAtAgent = waitFor(agentSock, 'remote.setmonitor');
+    viewerSock.emit('remote.setmonitor', { monitor: 2 });
+    assert.strictEqual((await monitorAtAgent).monitor, 2);
+
+    agentSock.disconnect();
+    viewerSock.disconnect();
+});
+
+test('role guards: a viewer-sent rtc.offer is dropped, not caught-all', async () => {
+    const sessionId = 'sess-guard-' + Date.now();
+    const { agentSock, viewerSock } = await startSessionPair(sessionId);
+
+    // rtc.offer has an explicit from:'agent' rule — a viewer emitting it
+    // must be dropped entirely (the catch-all must not resurrect it).
+    await assertNotRelayed(viewerSock, agentSock,
+        'rtc.offer', { sdp: 'forged' },
+        'rtc.ready', {});
+
+    agentSock.disconnect();
+    viewerSock.disconnect();
+});
+
+test('catch-all: unlisted events relay to the opposite role in both directions', async () => {
+    const sessionId = 'sess-any-' + Date.now();
+    const { agentSock, viewerSock } = await startSessionPair(sessionId);
+
+    const clipboardAtAgent = waitFor(agentSock, 'clipboard.set');
+    viewerSock.emit('clipboard.set', { text: 'hello' });
+    assert.strictEqual((await clipboardAtAgent).text, 'hello');
+
+    const statsAtViewer = waitFor(viewerSock, 'agent.stats');
+    agentSock.emit('agent.stats', { fps: 30 });
+    assert.strictEqual((await statsAtViewer).fps, 30);
+
+    agentSock.disconnect();
+    viewerSock.disconnect();
+});
+
+test('catch-all: multi-arg payloads relay; ack callbacks are stripped', async () => {
+    const sessionId = 'sess-args-' + Date.now();
+    const { agentSock, viewerSock } = await startSessionPair(sessionId);
+
+    const received = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('multi-arg timeout')), 4000);
+        agentSock.on('custom.multi', (a, b) => { clearTimeout(timer); resolve([a, b]); });
+    });
+    viewerSock.emit('custom.multi', { a: 1 }, { b: 2 }, () => {}); // ack never fires — relay doesn't ack
+    assert.deepStrictEqual(await received, [{ a: 1 }, { b: 2 }]);
+
+    agentSock.disconnect();
+    viewerSock.disconnect();
+});
+
+test('reserved events are never relayed (auth_ok cannot be forged)', async () => {
+    const sessionId = 'sess-reserved-' + Date.now();
+    const { agentSock, viewerSock } = await startSessionPair(sessionId);
+
+    await assertNotRelayed(viewerSock, agentSock,
+        'auth_ok', { session_id: 'spoofed', role: 'admin' },
+        'rtc.ready', {});
+
+    agentSock.disconnect();
+    viewerSock.disconnect();
+});
+
+test('relay config: allow-list mode and per-event disable via options', async () => {
+    const strictPort = PORT + 2;
+    const strictServer = new TyoMQServer({
+        port: strictPort,
+        remote: {
+            relay_unlisted: 'off',
+            relay: {
+                'custom.allowed': { from: 'viewer', to: 'agent' },
+                'input.sas': { enabled: false }
+            }
+        }
+    });
+    strictServer.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop };
+    strictServer.start(strictPort);
+    strictServer._testPort = strictPort;
+
+    const sessionId = 'sess-strict-' + Date.now();
+    const { agentSock, viewerSock } = await startSessionPair(sessionId, strictServer);
+
+    // The configured custom event relays…
+    const allowedAtAgent = waitFor(agentSock, 'custom.allowed');
+    viewerSock.emit('custom.allowed', { ok: true });
+    assert.strictEqual((await allowedAtAgent).ok, true);
+
+    // …an unlisted one does not (allow-list mode)…
+    await assertNotRelayed(viewerSock, agentSock,
+        'custom.unlisted', {},
+        'custom.allowed', {});
+
+    // …and a disabled built-in does not either.
+    await assertNotRelayed(viewerSock, agentSock,
+        'input.sas', {},
+        'custom.allowed', {});
+
+    agentSock.disconnect();
+    viewerSock.disconnect();
+});
+
+test('relay config hot-reloads from settings within a second', async () => {
+    const sessionId = 'sess-reload-' + Date.now();
+    const { agentSock, viewerSock } = await startSessionPair(sessionId);
+
+    // Disable input.mouse at runtime…
+    server.settings.merge({ remote: { relay: { 'input.mouse': { enabled: false } } } });
+    await delay(1100); // relay table cache TTL
+
+    await assertNotRelayed(viewerSock, agentSock,
+        'input.mouse', { x: 1, y: 1 },
+        'rtc.ready', {});
+
+    // …and re-enable it (settings are deep-merged, so the earlier
+    // enabled:false must be overridden explicitly).
+    server.settings.merge({ remote: { relay: { 'input.mouse': { from: 'viewer', to: 'agent', enabled: true } } } });
+    await delay(1100);
+
+    const mouseAtAgent = waitFor(agentSock, 'input.mouse');
+    viewerSock.emit('input.mouse', { x: 5, y: 6 });
+    assert.strictEqual((await mouseAtAgent).x, 5);
+
+    agentSock.disconnect();
+    viewerSock.disconnect();
+});
+
 test('authenticated main namespace can request a remote ticket', async () => {
     const mainSock = await connectMain();
     try {
