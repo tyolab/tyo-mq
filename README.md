@@ -418,8 +418,9 @@ When `TYO_MQ_SETTINGS_FILE` is configured, approved tokens are persisted to that
 file and survive restarts; otherwise they are runtime-only.
 
 Once realm/token data grows beyond hand-edited scale, enable the **SQLite auth
-store** (`"auth_store": {"filename": "tyo-mq.auth.sqlite"}` in settings, or
-`TYO_MQ_AUTH_STORE=true`; Node 22+): realms and tokens are then persisted
+store** (opt-in: `"auth_store": {"filename": "tyo-mq.auth.sqlite"}` in
+settings, `--auth-store`, or `TYO_MQ_AUTH_STORE=true`; Node 22+): realms and
+tokens are then persisted
 row-level in SQLite (WAL, crash-safe) instead of rewriting the JSON file on
 every change, with automatic import of existing data on first boot. See
 [AUTHENTICATION.md](AUTHENTICATION.md#sqlite-auth-store).
