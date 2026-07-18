@@ -48,6 +48,7 @@
     externalAuthScope: document.getElementById('external-auth-scope'),
     externalAuthUrl: document.getElementById('external-auth-url'),
     externalAuthSecret: document.getElementById('external-auth-secret'),
+    externalAuthList: document.getElementById('external-auth-list'),
     disableExternalAuthBtn: document.getElementById('disable-external-auth-btn'),
     addMgmtTokenForm: document.getElementById('add-mgmt-token-form'),
     mgmtTokenPrefix: document.getElementById('mgmt-token-prefix'),
@@ -360,13 +361,116 @@
   }
 
   function renderExternalAuth() {
-    els.externalAuthUrl.value = (settings && settings.auth_url) || '';
     // The secret is never echoed back (the server masks it); a blank input
     // means "keep the current one".
     els.externalAuthSecret.value = '';
     els.externalAuthSecret.placeholder = (settings && settings.auth_secret)
       ? 'configured — leave blank to keep'
       : 'not set';
+    renderExternalValidators();
+  }
+
+  // One entry per configured validator, across all three scopes.
+  function collectExternalValidators() {
+    var entries = [];
+    if (settings && settings.auth_url) {
+      entries.push({
+        scope: '', label: 'global — every realm (fallback)',
+        url: settings.auth_url,
+        secretConfigured: !!settings.auth_secret
+      });
+    }
+    ((settings && settings.external_validators) || []).forEach(function (entry) {
+      if (!entry || !entry.realm_prefix || !entry.auth_url) return;
+      entries.push({
+        scope: entry.realm_prefix, label: 'prefix ' + entry.realm_prefix,
+        url: entry.auth_url,
+        secretConfigured: !!entry.auth_secret_configured
+      });
+    });
+    var realms = (settings && settings.realms) || {};
+    Object.keys(realms).sort().forEach(function (name) {
+      var rc = realms[name] || {};
+      if (!rc.auth_url) return;
+      entries.push({
+        scope: name, label: 'realm ' + name,
+        url: rc.auth_url,
+        secretConfigured: !!rc.auth_secret_configured
+      });
+    });
+    return entries;
+  }
+
+  function renderExternalValidators() {
+    var entries = collectExternalValidators();
+    els.externalAuthList.innerHTML = '';
+
+    if (entries.length === 0) {
+      els.externalAuthList.className = 'list empty';
+      els.externalAuthList.textContent = 'No external validators configured';
+      return;
+    }
+
+    els.externalAuthList.className = 'list';
+    entries.forEach(function (entry) {
+      var row = document.createElement('div');
+      row.className = 'token-row';
+
+      var detail = document.createElement('div');
+      detail.className = 'token-detail';
+
+      var title = document.createElement('div');
+      title.className = 'token-title';
+      title.textContent = entry.label;
+
+      var meta = document.createElement('div');
+      meta.className = 'token-meta';
+      meta.textContent = entry.url + ' · secret ' + (entry.secretConfigured ? 'configured' : 'not set');
+
+      detail.appendChild(title);
+      detail.appendChild(meta);
+
+      var edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'secondary';
+      edit.textContent = 'Edit';
+      edit.addEventListener('click', function () {
+        els.externalAuthScope.value = entry.scope;
+        els.externalAuthUrl.value = entry.url;
+        els.externalAuthSecret.value = '';
+        els.externalAuthSecret.placeholder = entry.secretConfigured
+          ? 'configured — leave blank to keep'
+          : 'not set';
+        els.externalAuthSecret.focus();
+      });
+
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'danger';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', function () {
+        handle(async function () {
+          var confirmed = window.confirm(
+            'Remove the ' + entry.label + ' validator?\n\n' +
+            'Tokens relying on it will be rejected. Other scopes are untouched.');
+          if (!confirmed)
+            return;
+          var body = {command: 'set_external_auth', auth_url: '', auth_secret: ''};
+          if (entry.scope && entry.scope.slice(-1) === ':')
+            body.realm_prefix = entry.scope;
+          else if (entry.scope)
+            body.realm = entry.scope;
+          var response = await managementCommand(body);
+          setSettings(response.settings);
+          setStatus('External validator removed (' + entry.label + ')');
+        });
+      });
+
+      row.appendChild(detail);
+      row.appendChild(edit);
+      row.appendChild(remove);
+      els.externalAuthList.appendChild(row);
+    });
   }
 
   function setActiveTab(name) {

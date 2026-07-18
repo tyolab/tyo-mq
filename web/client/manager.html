@@ -118,9 +118,12 @@
             </div>
             <p class="panel-note">
               Tokens no local credential recognizes (realm JWTs, configured tokens)
-              are validated by POSTing them to this URL with the
+              are validated by POSTing them to a validator URL with the
               <code>X-MQ-Auth-Secret</code> header. Local credentials are always
               checked first, so enabling this cannot break existing clients.
+              Validators can be scoped to one realm or a realm prefix — a scoped
+              validator can only authorize tokens into its own realm(s); the
+              most specific scope wins.
             </p>
             <form id="external-auth-form" class="stacked-form">
               <div class="field">
@@ -140,6 +143,7 @@
                 <button id="disable-external-auth-btn" class="secondary" type="button">Disable</button>
               </div>
             </form>
+            <div id="external-auth-list" class="list empty">No external validators configured</div>
           </div>
 
           <div class="panel">
