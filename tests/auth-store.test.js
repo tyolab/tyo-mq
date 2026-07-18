@@ -230,6 +230,46 @@ test('backupAuthStore writes a consistent, loadable snapshot', async () => {
     }
 });
 
+test('auth_store configured only in the settings file activates after the async load', async () => {
+    const dir = tmpDir();
+    const storeFile = path.join(dir, 'auth.sqlite');
+    const settingsFile = path.join(dir, 'settings.json');
+
+    // The config lives ONLY in the settings file — no constructor option.
+    // The file read is asynchronous, so the store must activate when the
+    // settings arrive, not just at create() time.
+    fs.writeFileSync(settingsFile, JSON.stringify({
+        auth_store: { filename: storeFile }
+    }, null, 2));
+
+    const server = await startServer({
+        auth: {
+            enabled: true,
+            auto_admin_token: false,
+            tokens: [{ token: ADMIN_TOKEN, realm: '*', role: 'admin' }]
+        }
+    });
+    const options = {host: '127.0.0.1', port: server.port, protocol: 'http'};
+
+    try {
+        server.server.loadSettings(settingsFile);
+        await delay(400); // let the async file load + store activation land
+
+        await Authorization.authManagementCommand(ADMIN_TOKEN, {
+            command: 'add_realm', realm: 'org:file-configured-store'
+        }, options);
+
+        const store = new AuthStore({filename: storeFile});
+        const stored = store.load();
+        store.close();
+        assert.ok(stored.realms['org:file-configured-store'],
+            'store configured via settings file must be active and receiving writes');
+    } finally {
+        await server.close();
+        fs.rmSync(dir, {recursive: true, force: true});
+    }
+});
+
 test('servers without auth_store are untouched (settings file keeps realms)', async () => {
     const dir = tmpDir();
     const settingsFile = path.join(dir, 'settings.json');
