@@ -218,6 +218,28 @@ default is to require it). Individual endpoints can be switched off with
 Management (write) operations intentionally stay on the signed socket
 command channel — the HTTP surface is read-only by design.
 
+## Custom namespaces (opt-in)
+
+The broker can host additional socket.io namespaces from operator-supplied
+modules — new realtime surfaces without touching tyo-mq itself:
+
+```json
+{
+  "namespaces": {
+    "/collab": { "module": "./namespaces/collab.js", "options": { "max_rooms": 100 } }
+  }
+}
+```
+
+A module exports `attach(io, options, context)` — it calls
+`io.of(context.name)` and wires its own handlers; `context.getOptions()`
+reads the live options block (hot-reloaded), and any returned API surfaces
+as `server.namespaces['/collab']`. The bundled `/remote` streaming
+namespace implements this same contract and is the reference
+implementation (`lib/remote-namespace.js`). Namespaces attach at startup
+and when they appear in a settings reload; a broken module is logged and
+skipped, never crashing the broker. `/` and `/remote` are reserved.
+
 ## Demo
 
 ### Start the TYO-MQ server
