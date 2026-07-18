@@ -417,6 +417,13 @@ admin token. Approved client tokens are added to the server's auth token list.
 When `TYO_MQ_SETTINGS_FILE` is configured, approved tokens are persisted to that
 file and survive restarts; otherwise they are runtime-only.
 
+Once realm/token data grows beyond hand-edited scale, enable the **SQLite auth
+store** (`"auth_store": {"filename": "tyo-mq.auth.sqlite"}` in settings, or
+`TYO_MQ_AUTH_STORE=true`; Node 22+): realms and tokens are then persisted
+row-level in SQLite (WAL, crash-safe) instead of rewriting the JSON file on
+every change, with automatic import of existing data on first boot. See
+[AUTHENTICATION.md](AUTHENTICATION.md#sqlite-auth-store).
+
 Approved client tokens can be revoked through the interactive manager or the
 signed management command `revoke_token`. Revocation can identify a token by
 `token_hash`, or by `realm` plus `client_id`.

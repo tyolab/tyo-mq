@@ -24,5 +24,10 @@
     "jwt_secret": "",
 
     "auth_url": ""
+  },
+
+  "auth_store": {
+    "enabled": false,
+    "filename": "tyo-mq.auth.sqlite"
   }
 }

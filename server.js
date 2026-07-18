@@ -43,6 +43,11 @@ var server = new Server({
         env_file: process.env.TYO_MQ_ENV_FILE || '.env',
         auto_admin_token: process.env.TYO_MQ_AUTO_ADMIN_TOKEN !== 'false'
     },
+    // SQLite-backed persistence for realms/tokens (recommended once realm
+    // data grows): set TYO_MQ_AUTH_STORE=true or point it at a .sqlite file.
+    auth_store: process.env.TYO_MQ_AUTH_STORE === 'true'
+        ? true
+        : (process.env.TYO_MQ_AUTH_STORE || undefined),
 });
 
 if (process.env.TYO_MQ_SETTINGS_FILE)
