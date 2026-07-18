@@ -421,8 +421,11 @@ realms), switch to the SQLite auth store:
 }
 ```
 
-or start the server with `TYO_MQ_AUTH_STORE=true` (default filename) or
+or start the server with `--auth-store [/path/to/auth.sqlite]`, or with
+`TYO_MQ_AUTH_STORE=true` (default filename) or
 `TYO_MQ_AUTH_STORE=/path/to/auth.sqlite`. Requires Node 22+ (`node:sqlite`).
+The store is strictly **opt-in** — without one of these, realms and tokens
+keep being persisted to the settings JSON file exactly as before.
 
 What changes when the store is enabled:
 
