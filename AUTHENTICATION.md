@@ -359,7 +359,8 @@ the `ttl` lapses):
 { "command": "add_realm", "realm": "ci:run-4821", "ephemeral": true, "ttl": "2h" }
 ```
 
-Convert an existing realm between the forms (see REALM.md for details):
+Convert an existing realm between the forms (see REALM.md, and
+EPHEMERAL-REALMS.md for the full provisioning guide):
 
 ```json
 { "command": "set_realm_lifetime", "realm": "ci:run-4821", "ephemeral": false }
