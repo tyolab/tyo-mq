@@ -338,8 +338,8 @@ management commands `set_realm_key` and `set_realm_acceptance` — available fro
 the interactive manager (`npm run manager`), the web manager UI
 (`npm run manager:web`), or `Authorization.authManagementCommand()`.
 
-Realms come in two forms: **permanent** (the default) and **temporary /
-disposable** — created with `add_realm {temporary: true, ttl: '2h'}` and
+Realms come in two forms: **permanent** (the default) and **ephemeral /
+disposable** — created with `add_realm {ephemeral: true, ttl: '2h'}` and
 disposed of automatically when the TTL lapses (config, scoped tokens, runtime
 state, connected sockets, and stored messages are all removed). Convert
 between the forms with `set_realm_lifetime`. See [REALM.md](REALM.md) for
