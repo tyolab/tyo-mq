@@ -27,7 +27,7 @@
     addRealmForm: document.getElementById('add-realm-form'),
     newRealm: document.getElementById('new-realm'),
     newRealmRequired: document.getElementById('new-realm-required'),
-    newRealmTemporary: document.getElementById('new-realm-temporary'),
+    newRealmEphemeral: document.getElementById('new-realm-ephemeral'),
     newRealmTtl: document.getElementById('new-realm-ttl'),
     renameRealmForm: document.getElementById('rename-realm-form'),
     renameFrom: document.getElementById('rename-from'),
@@ -425,13 +425,13 @@
       pill.textContent = required ? 'auth required' : 'open';
 
       var lifetimePill = null;
-      if (realm.temporary) {
+      if (realm.ephemeral || realm.temporary) {
         lifetimePill = document.createElement('span');
         lifetimePill.className = 'pill open';
-        lifetimePill.textContent = 'temporary';
+        lifetimePill.textContent = 'ephemeral';
         if (realm.expires_at) {
           lifetimePill.title = 'Disposed automatically at ' + new Date(realm.expires_at).toLocaleString();
-          lifetimePill.textContent = 'temporary · expires ' + new Date(realm.expires_at).toLocaleString();
+          lifetimePill.textContent = 'ephemeral · expires ' + new Date(realm.expires_at).toLocaleString();
         }
       }
 
@@ -1075,18 +1075,18 @@
         realm: realm,
         required: els.newRealmRequired.checked
       };
-      if (els.newRealmTemporary.checked) {
-        body.temporary = true;
+      if (els.newRealmEphemeral.checked) {
+        body.ephemeral = true;
         var ttl = els.newRealmTtl.value.trim();
         if (ttl)
           body.ttl = ttl;
       }
       var response = await managementCommand(body);
       els.newRealm.value = '';
-      els.newRealmTemporary.checked = false;
+      els.newRealmEphemeral.checked = false;
       els.newRealmTtl.value = '';
       setSettings(response.settings);
-      setStatus('Added ' + (body.temporary ? 'temporary ' : '') + 'realm ' + realm);
+      setStatus('Added ' + (body.ephemeral ? 'ephemeral ' : '') + 'realm ' + realm);
     });
   });
 

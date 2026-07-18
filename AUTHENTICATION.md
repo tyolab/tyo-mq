@@ -350,19 +350,19 @@ realms, enable or disable auth globally or per realm, verify the admin token,
 and approve or reject pending authorization requests. The admin token is used
 locally to sign commands and is never sent directly.
 
-Create a realm in either of its two forms — permanent (default) or temporary
+Create a realm in either of its two forms — permanent (default) or ephemeral
 (disposable, auto-removed with its tokens, sockets, and stored messages once
 the `ttl` lapses):
 
 ```json
 { "command": "add_realm", "realm": "org:acme" }
-{ "command": "add_realm", "realm": "ci:run-4821", "temporary": true, "ttl": "2h" }
+{ "command": "add_realm", "realm": "ci:run-4821", "ephemeral": true, "ttl": "2h" }
 ```
 
 Convert an existing realm between the forms (see REALM.md for details):
 
 ```json
-{ "command": "set_realm_lifetime", "realm": "ci:run-4821", "temporary": false }
+{ "command": "set_realm_lifetime", "realm": "ci:run-4821", "ephemeral": false }
 ```
 
 Set or rotate a realm manager key with a global admin signed management command:
