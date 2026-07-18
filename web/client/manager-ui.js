@@ -45,6 +45,7 @@
     refreshTokensBtn: document.getElementById('refresh-tokens-btn'),
     tokensList: document.getElementById('tokens-list'),
     externalAuthForm: document.getElementById('external-auth-form'),
+    externalAuthScope: document.getElementById('external-auth-scope'),
     externalAuthUrl: document.getElementById('external-auth-url'),
     externalAuthSecret: document.getElementById('external-auth-secret'),
     disableExternalAuthBtn: document.getElementById('disable-external-auth-btn'),
@@ -1097,12 +1098,19 @@
       if (!url)
         throw new Error('Validation URL is required — use Disable to turn external auth off');
       var body = {command: 'set_external_auth', auth_url: url};
+      // Scope: blank = global; "prefix:" = realms under the prefix; anything
+      // else = that one realm.
+      var scope = els.externalAuthScope.value.trim();
+      if (scope && scope.slice(-1) === ':')
+        body.realm_prefix = scope;
+      else if (scope)
+        body.realm = scope;
       var secret = els.externalAuthSecret.value;
       if (secret)
         body.auth_secret = secret;
       var response = await managementCommand(body);
       setSettings(response.settings);
-      setStatus('External auth updated');
+      setStatus('External auth updated' + (scope ? ' for ' + scope : ' (global)'));
     });
   });
 
@@ -1167,15 +1175,21 @@
 
   els.disableExternalAuthBtn.addEventListener('click', function () {
     handle(async function () {
+      var scope = els.externalAuthScope.value.trim();
       var confirmed = window.confirm(
-        'Disable external token validation?\n\n' +
+        'Disable external token validation' + (scope ? ' for ' + scope : ' (global)') + '?\n\n' +
         'Tokens unknown to this server will be rejected without consulting the ' +
         'external validator, and the stored callback secret is cleared.');
       if (!confirmed)
         return;
-      var response = await managementCommand({command: 'set_external_auth', auth_url: '', auth_secret: ''});
+      var body = {command: 'set_external_auth', auth_url: '', auth_secret: ''};
+      if (scope && scope.slice(-1) === ':')
+        body.realm_prefix = scope;
+      else if (scope)
+        body.realm = scope;
+      var response = await managementCommand(body);
       setSettings(response.settings);
-      setStatus('External auth disabled');
+      setStatus('External auth disabled' + (scope ? ' for ' + scope : ' (global)'));
     });
   });
 
