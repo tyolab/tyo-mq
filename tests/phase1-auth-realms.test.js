@@ -823,7 +823,7 @@ test('manager removes a realm and drops its scoped tokens', async () => {
     }
 });
 
-test('add_realm creates permanent and temporary (disposable) realm forms', async () => {
+test('add_realm creates permanent and ephemeral (disposable) realm forms', async () => {
     const adminToken = 'secret-admin';
     const authServer = await startServer({
         auth: {
@@ -841,33 +841,42 @@ test('add_realm creates permanent and temporary (disposable) realm forms', async
             command: 'add_realm',
             realm: 'permanent-realm'
         }, options);
-        assert.strictEqual(permanent.settings.realms['permanent-realm'].temporary, undefined);
+        assert.strictEqual(permanent.settings.realms['permanent-realm'].ephemeral, undefined);
         assert.strictEqual(permanent.settings.realms['permanent-realm'].expires_at, undefined);
 
-        // temporary: true tags the realm with an expiry (default TTL applies).
-        const temporary = await Authorization.authManagementCommand(adminToken, {
+        // ephemeral: true tags the realm with an expiry (default TTL applies).
+        const ephemeral = await Authorization.authManagementCommand(adminToken, {
             command: 'add_realm',
-            realm: 'temp-realm',
-            temporary: true,
+            realm: 'ephemeral-realm',
+            ephemeral: true,
             ttl: '2h'
         }, options);
-        assert.strictEqual(temporary.settings.realms['temp-realm'].temporary, true);
-        const expiresAt = temporary.settings.realms['temp-realm'].expires_at;
+        assert.strictEqual(ephemeral.settings.realms['ephemeral-realm'].ephemeral, true);
+        const expiresAt = ephemeral.settings.realms['ephemeral-realm'].expires_at;
         assert.ok(expiresAt > Date.now() + 60 * 60 * 1000, 'expiry should honour the 2h ttl');
 
-        // A bare ttl implies the temporary form.
+        // 'temporary' is accepted as an input alias for ephemeral.
+        const aliased = await Authorization.authManagementCommand(adminToken, {
+            command: 'add_realm',
+            realm: 'aliased-realm',
+            temporary: true,
+            ttl: '1h'
+        }, options);
+        assert.strictEqual(aliased.settings.realms['aliased-realm'].ephemeral, true);
+
+        // A bare ttl implies the ephemeral form.
         const implied = await Authorization.authManagementCommand(adminToken, {
             command: 'add_realm',
-            realm: 'implied-temp-realm',
+            realm: 'implied-ephemeral-realm',
             ttl: '30m'
         }, options);
-        assert.strictEqual(implied.settings.realms['implied-temp-realm'].temporary, true);
+        assert.strictEqual(implied.settings.realms['implied-ephemeral-realm'].ephemeral, true);
 
         // Garbage TTLs are rejected outright.
         const invalid = await Authorization.authManagementCommand(adminToken, {
             command: 'add_realm',
             realm: 'bad-ttl-realm',
-            temporary: true,
+            ephemeral: true,
             ttl: 'soonish'
         }, options).then(() => null).catch(err => err.response);
         assert.strictEqual(invalid.code, 400);
@@ -876,18 +885,18 @@ test('add_realm creates permanent and temporary (disposable) realm forms', async
     }
 });
 
-test('expired temporary realms are disposed with tokens, sockets, and messages', async () => {
+test('expired ephemeral realms are disposed with tokens, sockets, and messages', async () => {
     const adminToken = 'secret-admin';
-    const clientToken = 'temp-realm-client';
+    const clientToken = 'ephemeral-realm-client';
     const authServer = await startServer({
         auth: {
             enabled: true,
             realms: {
-                'temp-realm': { required: true, temporary: true, expires_at: Date.now() + 400 }
+                'ephemeral-realm': { required: true, ephemeral: true, expires_at: Date.now() + 400 }
             },
             tokens: [
                 { token: adminToken, realm: '*', role: 'admin' },
-                { token: clientToken, realm: 'temp-realm', role: 'both' }
+                { token: clientToken, realm: 'ephemeral-realm', role: 'both' }
             ]
         }
     });
@@ -901,26 +910,26 @@ test('expired temporary realms are disposed with tokens, sockets, and messages',
         await waitFor(socket, 'AUTH_OK');
 
         // Park a durable message in the realm so disposal has something to purge.
-        await authServer.server.store.enqueue('temp-realm', 'orders', {
+        await authServer.server.store.enqueue('ephemeral-realm', 'orders', {
             consumer: 'worker', payload: {n: 1}
         });
 
         // Not yet expired — the sweep must leave the realm alone.
-        assert.strictEqual(authServer.server.sweepTemporaryRealms(), 0);
+        assert.strictEqual(authServer.server.sweepEphemeralRealms(), 0);
 
         await delay(500);
         const disconnected = waitFor(socket, 'disconnect');
-        assert.strictEqual(authServer.server.sweepTemporaryRealms(), 1);
+        assert.strictEqual(authServer.server.sweepEphemeralRealms(), 1);
         await disconnected;
 
         const after = await Authorization.authManagementCommand(adminToken, {
             command: 'get'
         }, options);
-        assert.ok(!after.settings.realms['temp-realm'], 'realm config should be gone');
-        assert.ok(!after.settings.tokens.some(t => t.realm === 'temp-realm'),
+        assert.ok(!after.settings.realms['ephemeral-realm'], 'realm config should be gone');
+        assert.ok(!after.settings.tokens.some(t => t.realm === 'ephemeral-realm'),
             'realm-scoped tokens should be dropped');
 
-        const remaining = await authServer.server.store.dequeue('temp-realm', 'orders', 'worker');
+        const remaining = await authServer.server.store.dequeue('ephemeral-realm', 'orders', 'worker');
         assert.strictEqual(remaining.length, 0, 'stored messages should be purged');
     } finally {
         socket.disconnect();
@@ -928,7 +937,7 @@ test('expired temporary realms are disposed with tokens, sockets, and messages',
     }
 });
 
-test('set_realm_lifetime converts realms between temporary and permanent', async () => {
+test('set_realm_lifetime converts realms between ephemeral and permanent', async () => {
     const adminToken = 'secret-admin';
     const authServer = await startServer({
         auth: {
@@ -944,7 +953,7 @@ test('set_realm_lifetime converts realms between temporary and permanent', async
         await Authorization.authManagementCommand(adminToken, {
             command: 'add_realm',
             realm: 'flip-realm',
-            temporary: true,
+            ephemeral: true,
             ttl: '200ms'
         }, options);
 
@@ -953,28 +962,28 @@ test('set_realm_lifetime converts realms between temporary and permanent', async
         const madePermanent = await Authorization.authManagementCommand(adminToken, {
             command: 'set_realm_lifetime',
             realm: 'flip-realm',
-            temporary: false
+            ephemeral: false
         }, options);
-        assert.strictEqual(madePermanent.settings.realms['flip-realm'].temporary, undefined);
+        assert.strictEqual(madePermanent.settings.realms['flip-realm'].ephemeral, undefined);
         assert.strictEqual(madePermanent.settings.realms['flip-realm'].expires_at, undefined);
         await delay(300);
-        assert.strictEqual(authServer.server.sweepTemporaryRealms(), 0);
+        assert.strictEqual(authServer.server.sweepEphemeralRealms(), 0);
 
-        // And back to temporary: a fresh ttl re-arms disposal.
+        // And back to ephemeral: a fresh ttl re-arms disposal.
         await Authorization.authManagementCommand(adminToken, {
             command: 'set_realm_lifetime',
             realm: 'flip-realm',
-            temporary: true,
+            ephemeral: true,
             ttl: '150ms'
         }, options);
         await delay(250);
-        assert.strictEqual(authServer.server.sweepTemporaryRealms(), 1);
+        assert.strictEqual(authServer.server.sweepEphemeralRealms(), 1);
 
         // The structural realms are not convertible.
         const guarded = await Authorization.authManagementCommand(adminToken, {
             command: 'set_realm_lifetime',
             realm: 'default',
-            temporary: true
+            ephemeral: true
         }, options).then(() => null).catch(err => err.response);
         assert.strictEqual(guarded.code, 400);
     } finally {
@@ -982,14 +991,16 @@ test('set_realm_lifetime converts realms between temporary and permanent', async
     }
 });
 
-test('expired temporary realms left over from a previous run are swept at startup', async () => {
+test('expired ephemeral realms left over from a previous run are swept at startup', async () => {
     const adminToken = 'secret-admin';
     const authServer = await startServer({
         auth: {
             enabled: true,
             realms: {
-                'stale-temp-realm': { required: true, temporary: true, expires_at: Date.now() - 1000 },
-                'live-temp-realm':  { required: true, temporary: true, expires_at: Date.now() + 60000 }
+                'stale-ephemeral-realm': { required: true, ephemeral: true, expires_at: Date.now() - 1000 },
+                // Old-style 'temporary' tag (pre-rename settings file) must sweep too.
+                'stale-legacy-realm':    { required: true, temporary: true, expires_at: Date.now() - 1000 },
+                'live-ephemeral-realm':  { required: true, ephemeral: true, expires_at: Date.now() + 60000 }
             },
             tokens: [
                 { token: adminToken, realm: '*', role: 'admin' }
@@ -1002,11 +1013,13 @@ test('expired temporary realms left over from a previous run are swept at startu
         const settings = await Authorization.authManagementCommand(adminToken, {
             command: 'get'
         }, options);
-        assert.ok(!settings.settings.realms['stale-temp-realm'],
-            'expired temporary realm should be disposed at startup');
-        assert.ok(settings.settings.realms['live-temp-realm'],
-            'unexpired temporary realm must survive startup');
-        assert.strictEqual(settings.settings.realms['live-temp-realm'].temporary, true);
+        assert.ok(!settings.settings.realms['stale-ephemeral-realm'],
+            'expired ephemeral realm should be disposed at startup');
+        assert.ok(!settings.settings.realms['stale-legacy-realm'],
+            'expired legacy temporary-tagged realm should be disposed at startup');
+        assert.ok(settings.settings.realms['live-ephemeral-realm'],
+            'unexpired ephemeral realm must survive startup');
+        assert.strictEqual(settings.settings.realms['live-ephemeral-realm'].ephemeral, true);
     } finally {
         await authServer.close();
     }
