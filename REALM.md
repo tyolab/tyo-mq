@@ -20,6 +20,62 @@ another realm.
 An organization is the manager-facing concept. Normal operators should think in
 terms of orgs, while the server enforces access through the mapped realm.
 
+## Temporary and Permanent Realms
+
+A realm is created in one of two forms:
+
+- **Permanent** (the default) — lives until an explicit `remove_realm`. Use
+  this for organizations and long-lived integrations.
+- **Temporary (disposable)** — tagged with an expiry at creation and disposed
+  of automatically when it lapses. Use this for test runs, demos, short-lived
+  jobs, or per-session isolation, so they never accumulate in the settings
+  file.
+
+Create a temporary realm with the `add_realm` management command:
+
+```json
+{
+  "command": "add_realm",
+  "realm": "ci:run-4821",
+  "temporary": true,
+  "ttl": "2h"
+}
+```
+
+`ttl` accepts `"250ms"`, `"90s"`, `"15m"`, `"2h"`, `"7d"`, or a bare number of
+seconds; passing a `ttl` alone implies `temporary: true`. Without a `ttl` the
+default lifetime is 1 day (configurable via `auth.temporary_realm_ttl`). The
+realm config carries `temporary: true` and an `expires_at` timestamp, so the
+expiry survives server restarts.
+
+Disposal is complete: when the expiry lapses (checked once a minute and at
+startup) the server removes the realm config, drops every token scoped to the
+realm, deletes its runtime producers/consumers/subscriptions, disconnects its
+connected sockets, and purges its durable messages and dead-letter entries
+from storage. An explicit `remove_realm` performs the same full disposal for
+either form.
+
+Convert between the forms with `set_realm_lifetime`:
+
+```json
+{ "command": "set_realm_lifetime", "realm": "ci:run-4821", "temporary": false }
+{ "command": "set_realm_lifetime", "realm": "org:acme", "temporary": true, "ttl": "7d" }
+```
+
+Making a realm permanent clears its expiry; re-issuing a `ttl` on a temporary
+realm extends it. The structural `default` and `*` realms are always
+permanent.
+
+The HTTP realm-provisioning endpoint accepts the same options:
+
+```bash
+curl -X POST http://localhost:17352/api/realms \
+  -H "Authorization: Bearer $MANAGEMENT_TOKEN" \
+  -d '{"realm": "apps:tyoman:test-1", "manager_key": "...", "temporary": true, "ttl": "30m"}'
+```
+
+The response includes `temporary` and `expires_at`.
+
 ## Naming Convention
 
 Use this realm naming pattern:
