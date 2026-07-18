@@ -408,6 +408,44 @@ If the server is started with `TYO_MQ_SETTINGS_FILE`, management changes are
 persisted to that file. In Docker, mount that file or its parent directory as a
 volume.
 
+## SQLite Auth Store
+
+By default, realms and tokens are persisted by rewriting the whole settings
+JSON file on every change. That is fine while the data is small, but once
+realms and tokens grow (especially with programmatically created ephemeral
+realms), switch to the SQLite auth store:
+
+```json
+{
+  "auth_store": { "filename": "tyo-mq.auth.sqlite" }
+}
+```
+
+or start the server with `TYO_MQ_AUTH_STORE=true` (default filename) or
+`TYO_MQ_AUTH_STORE=/path/to/auth.sqlite`. Requires Node 22+ (`node:sqlite`).
+
+What changes when the store is enabled:
+
+- Realms, tokens, and management tokens are persisted **row-level in SQLite
+  (WAL mode)** — every change is a small transaction instead of a full-file
+  rewrite, and a crash mid-write can never truncate or corrupt the data.
+- The settings JSON file keeps only static config (ports, storage, auth
+  flags) and stops carrying the growing sections.
+- **Migration is automatic**: on first boot with the store enabled, realms
+  and tokens found in the settings file or constructor options are imported
+  into the database. Entries hand-added to the settings file later are still
+  imported on reload — the file acts as a one-way inbox.
+- Removals are durable: a removed or expired-ephemeral realm deleted from
+  the store stays gone across restarts.
+
+Back it up while running with a consistent online snapshot:
+
+```js
+server.backupAuthStore('/backups/tyo-mq-auth-' + date + '.sqlite');
+```
+
+or from cron: `sqlite3 tyo-mq.auth.sqlite "VACUUM INTO 'backup.sqlite'"`.
+
 Docker example:
 
 ```bash
