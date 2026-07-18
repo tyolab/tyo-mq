@@ -124,6 +124,10 @@
             </p>
             <form id="external-auth-form" class="stacked-form">
               <div class="field">
+                <label for="external-auth-scope">Scope — blank for global, a realm name, or a realm prefix ending in ":"</label>
+                <input id="external-auth-scope" type="text" placeholder="global · org:acme · apps:tyoman:" autocomplete="off">
+              </div>
+              <div class="field">
                 <label for="external-auth-url">Validation URL (auth_url)</label>
                 <input id="external-auth-url" type="url" placeholder="https://tyoman.tyo.com.au/api/v1/mq-auth" autocomplete="off">
               </div>

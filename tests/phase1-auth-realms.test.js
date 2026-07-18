@@ -1307,6 +1307,188 @@ test('auth_url rejection fails authentication', async () => {
     }
 });
 
+test('realm-scoped auth_url is used only for its realm, with its own secret', async () => {
+    const acmeStub = await startAuthStub((req, body) => (
+        body.token === 'acme-machine-tok'
+            ? { realm: 'acme', role: 'both' }
+            : { ok: false }
+    ));
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            realms: {
+                'acme': { required: true, auth_url: acmeStub.url, auth_secret: 'acme-cb-secret' },
+                'beta': { required: true }
+            }
+        }
+    });
+    const ioClient = require('socket.io-client');
+
+    // Token for acme goes to acme's validator, carrying acme's secret.
+    const acmeSocket = ioClient(`http://127.0.0.1:${authServer.port}`, { transports: ['websocket'] });
+    try {
+        await waitFor(acmeSocket, 'connect');
+        acmeSocket.emit('AUTHENTICATION', { token: 'acme-machine-tok', realm: 'acme' });
+        const ok = await waitFor(acmeSocket, 'AUTH_OK');
+        assert.deepStrictEqual(ok, { realm: 'acme', role: 'both' });
+        assert.strictEqual(acmeStub.requests.length, 1);
+        assert.strictEqual(acmeStub.requests[0].headers['x-mq-auth-secret'], 'acme-cb-secret');
+    } finally {
+        acmeSocket.disconnect();
+    }
+
+    // A token aimed at beta must NOT be sent to acme's validator (and with no
+    // global auth_url configured, it simply fails).
+    const betaSocket = ioClient(`http://127.0.0.1:${authServer.port}`, { transports: ['websocket'] });
+    try {
+        await waitFor(betaSocket, 'connect');
+        betaSocket.emit('AUTHENTICATION', { token: 'beta-unknown-tok', realm: 'beta' });
+        const fail = await waitFor(betaSocket, 'AUTH_FAIL');
+        assert.strictEqual(fail.code, 401);
+        assert.strictEqual(acmeStub.requests.length, 1, 'other realms must not reach this validator');
+    } finally {
+        betaSocket.disconnect();
+        await authServer.close();
+        await acmeStub.close();
+    }
+});
+
+test('prefix-scoped validators route by realm prefix and cannot cross realms', async () => {
+    const tyomanStub = await startAuthStub((req, body) => {
+        if (body.token === 'tyoman-tok')
+            return { realm: body.realm, role: 'both' };
+        if (body.token === 'escape-tok')
+            return { realm: 'org:other', role: 'admin' }; // outside its prefix
+        return { ok: false };
+    });
+    const globalStub = await startAuthStub((req, body) => (
+        body.token === 'global-tok' ? { realm: body.realm, role: 'consumer' } : { ok: false }
+    ));
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            auth_url: globalStub.url,
+            external_validators: [
+                { realm_prefix: 'apps:tyoman:', auth_url: tyomanStub.url, auth_secret: 'tyoman-cb' }
+            ],
+            realms: {
+                'apps:tyoman:ft': { required: true },
+                'org:elsewhere': { required: true }
+            }
+        }
+    });
+    const ioClient = require('socket.io-client');
+    const connect = () => ioClient(`http://127.0.0.1:${authServer.port}`, { transports: ['websocket'] });
+
+    // Realm under the prefix → prefix validator (with its secret).
+    let socket = connect();
+    try {
+        await waitFor(socket, 'connect');
+        socket.emit('AUTHENTICATION', { token: 'tyoman-tok', realm: 'apps:tyoman:ft' });
+        const ok = await waitFor(socket, 'AUTH_OK');
+        assert.deepStrictEqual(ok, { realm: 'apps:tyoman:ft', role: 'both' });
+        assert.strictEqual(tyomanStub.requests.length, 1);
+        assert.strictEqual(tyomanStub.requests[0].headers['x-mq-auth-secret'], 'tyoman-cb');
+        assert.strictEqual(globalStub.requests.length, 0);
+    } finally {
+        socket.disconnect();
+    }
+
+    // Realm outside every prefix → global validator.
+    socket = connect();
+    try {
+        await waitFor(socket, 'connect');
+        socket.emit('AUTHENTICATION', { token: 'global-tok', realm: 'org:elsewhere' });
+        const ok = await waitFor(socket, 'AUTH_OK');
+        assert.deepStrictEqual(ok, { realm: 'org:elsewhere', role: 'consumer' });
+        assert.strictEqual(globalStub.requests.length, 1);
+        assert.strictEqual(tyomanStub.requests.length, 1);
+    } finally {
+        socket.disconnect();
+    }
+
+    // Isolation: the prefix validator answering with a realm OUTSIDE its
+    // prefix must be discarded — one org's auth server cannot mint access to
+    // another org's realm.
+    socket = connect();
+    try {
+        await waitFor(socket, 'connect');
+        socket.emit('AUTHENTICATION', { token: 'escape-tok', realm: 'apps:tyoman:ft' });
+        const fail = await waitFor(socket, 'AUTH_FAIL');
+        assert.strictEqual(fail.code, 401);
+    } finally {
+        socket.disconnect();
+        await authServer.close();
+        await tyomanStub.close();
+        await globalStub.close();
+    }
+});
+
+test('set_external_auth accepts realm and realm_prefix scopes', async () => {
+    const adminToken = 'secret-admin';
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            tokens: [ { token: adminToken, realm: '*', role: 'admin' } ]
+        }
+    });
+    const options = {host: '127.0.0.1', port: authServer.port, protocol: 'http'};
+
+    try {
+        await Authorization.authManagementCommand(adminToken, {
+            command: 'add_realm', realm: 'org:acme'
+        }, options);
+
+        // Realm scope: lands on the realm config, secret redacted in `get`.
+        const realmScoped = await Authorization.authManagementCommand(adminToken, {
+            command: 'set_external_auth',
+            realm: 'org:acme',
+            auth_url: 'https://auth.acme.example/mq-auth',
+            auth_secret: 'acme-secret'
+        }, options);
+        assert.strictEqual(realmScoped.settings.realms['org:acme'].auth_url,
+            'https://auth.acme.example/mq-auth');
+        assert.strictEqual(realmScoped.settings.realms['org:acme'].auth_secret, undefined);
+        assert.strictEqual(realmScoped.settings.realms['org:acme'].auth_secret_configured, true);
+
+        // Unknown realm → 404; both scopes at once → 400.
+        const missing = await Authorization.authManagementCommand(adminToken, {
+            command: 'set_external_auth', realm: 'org:nope', auth_url: 'https://x.example/'
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(missing.code, 404);
+        const both = await Authorization.authManagementCommand(adminToken, {
+            command: 'set_external_auth', realm: 'org:acme', realm_prefix: 'org:',
+            auth_url: 'https://x.example/'
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(both.code, 400);
+
+        // Prefix scope: upserts an external_validators entry, redacted.
+        const prefixScoped = await Authorization.authManagementCommand(adminToken, {
+            command: 'set_external_auth',
+            realm_prefix: 'apps:tyoman:',
+            auth_url: 'https://tyoman.example/mq-auth',
+            auth_secret: 'tyoman-secret'
+        }, options);
+        assert.deepStrictEqual(prefixScoped.settings.external_validators, [{
+            realm_prefix: 'apps:tyoman:',
+            auth_url: 'https://tyoman.example/mq-auth',
+            auth_secret_configured: true
+        }]);
+
+        // Clearing: empty auth_url removes the realm/prefix validator.
+        const realmCleared = await Authorization.authManagementCommand(adminToken, {
+            command: 'set_external_auth', realm: 'org:acme', auth_url: ''
+        }, options);
+        assert.strictEqual(realmCleared.settings.realms['org:acme'].auth_url, undefined);
+        const prefixCleared = await Authorization.authManagementCommand(adminToken, {
+            command: 'set_external_auth', realm_prefix: 'apps:tyoman:', auth_url: ''
+        }, options);
+        assert.deepStrictEqual(prefixCleared.settings.external_validators, []);
+    } finally {
+        await authServer.close();
+    }
+});
+
 test('jwt_secret failure falls through to static tokens', async () => {
     // A configured global jwt_secret must not shadow the static token list.
     const authServer = await startServer({

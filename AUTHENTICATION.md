@@ -117,6 +117,40 @@ The endpoint should return:
 Non-2xx responses, `{ "valid": false }`, `{ "ok": false }`, or missing
 `realm`/`role` reject the token.
 
+### Realm- and Prefix-Scoped Validators
+
+External validators can be scoped instead of global — the right choice when
+each organization runs its own auth server. Resolution order for a token
+nothing local recognizes, based on the realm the client declared (or the
+token's JWT `realm` claim):
+
+1. **Realm scope** — `auth.realms[<realm>].auth_url` (+ optional
+   `auth_secret`)
+2. **Prefix scope** — `auth.external_validators`, longest matching
+   `realm_prefix` wins:
+
+   ```json
+   {
+     "auth": {
+       "external_validators": [
+         { "realm_prefix": "apps:tyoman:", "auth_url": "https://tyoman.tyo.com.au/api/v1/mq-auth", "auth_secret": "..." }
+       ]
+     }
+   }
+   ```
+3. **Global** — `auth.auth_url`, as before.
+
+Scoped validators are an isolation boundary, not just routing: a validator
+bound to a realm (or prefix) can only authorize tokens **into** that realm
+(or realms under that prefix) — a response naming any other realm is
+discarded. The global validator keeps its original unrestricted behavior.
+Clients must declare their realm (or use JWTs carrying a `realm` claim) for
+scoped validators to be selected.
+
+Configure with `set_external_auth` plus a scope (see Useful Commands), or in
+the web manager's External Auth panel via the Scope field (blank = global,
+`org:acme` = that realm, `apps:tyoman:` = prefix).
+
 ## Protocol Events
 
 Client authentication:
@@ -391,6 +425,18 @@ Configure external token validation (see "External Auth" above) with:
 Omitting `auth_secret` keeps the current one (it is never echoed back — `get`
 shows `"<configured>"`); an empty `auth_url` disables external validation. The
 browser manager exposes this as the "External Auth" panel on the Main tab.
+
+Scope the validator to one realm or a realm prefix by adding `realm` or
+`realm_prefix` (see "Realm- and Prefix-Scoped Validators" above):
+
+```json
+{ "command": "set_external_auth", "realm": "org:acme", "auth_url": "https://auth.acme.example/mq-auth", "auth_secret": "..." }
+{ "command": "set_external_auth", "realm_prefix": "apps:tyoman:", "auth_url": "https://tyoman.tyo.com.au/api/v1/mq-auth" }
+{ "command": "set_external_auth", "realm_prefix": "apps:tyoman:", "auth_url": "" }
+```
+
+The last form removes the scoped validator (an empty `auth_url` with a scope
+clears just that scope, leaving the global validator untouched).
 
 Manage HTTP-management-API bearer tokens (`auth.management_tokens`) with:
 
