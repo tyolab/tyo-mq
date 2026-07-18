@@ -53,6 +53,11 @@
                 <input id="new-realm-required" type="checkbox" checked>
                 Require auth
               </label>
+              <label class="check" title="Disposable realm — removed automatically (tokens, sockets, and stored messages included) when the TTL lapses">
+                <input id="new-realm-temporary" type="checkbox">
+                Temporary
+              </label>
+              <input id="new-realm-ttl" type="text" placeholder="ttl (e.g. 2h)" autocomplete="off">
               <button type="submit">Add</button>
             </form>
 

@@ -27,6 +27,8 @@
     addRealmForm: document.getElementById('add-realm-form'),
     newRealm: document.getElementById('new-realm'),
     newRealmRequired: document.getElementById('new-realm-required'),
+    newRealmTemporary: document.getElementById('new-realm-temporary'),
+    newRealmTtl: document.getElementById('new-realm-ttl'),
     renameRealmForm: document.getElementById('rename-realm-form'),
     renameFrom: document.getElementById('rename-from'),
     renameTo: document.getElementById('rename-to'),
@@ -422,6 +424,17 @@
       pill.className = required ? 'pill' : 'pill open';
       pill.textContent = required ? 'auth required' : 'open';
 
+      var lifetimePill = null;
+      if (realm.temporary) {
+        lifetimePill = document.createElement('span');
+        lifetimePill.className = 'pill open';
+        lifetimePill.textContent = 'temporary';
+        if (realm.expires_at) {
+          lifetimePill.title = 'Disposed automatically at ' + new Date(realm.expires_at).toLocaleString();
+          lifetimePill.textContent = 'temporary · expires ' + new Date(realm.expires_at).toLocaleString();
+        }
+      }
+
       var toggle = document.createElement('button');
       toggle.type = 'button';
       toggle.className = 'secondary';
@@ -486,6 +499,8 @@
 
       row.appendChild(detail);
       row.appendChild(pill);
+      if (lifetimePill)
+        row.appendChild(lifetimePill);
       row.appendChild(toggle);
       row.appendChild(generate);
       row.appendChild(copy);
@@ -1055,14 +1070,23 @@
       var realm = els.newRealm.value.trim();
       if (!realm)
         throw new Error('Realm name is required');
-      var response = await managementCommand({
+      var body = {
         command: 'add_realm',
         realm: realm,
         required: els.newRealmRequired.checked
-      });
+      };
+      if (els.newRealmTemporary.checked) {
+        body.temporary = true;
+        var ttl = els.newRealmTtl.value.trim();
+        if (ttl)
+          body.ttl = ttl;
+      }
+      var response = await managementCommand(body);
       els.newRealm.value = '';
+      els.newRealmTemporary.checked = false;
+      els.newRealmTtl.value = '';
       setSettings(response.settings);
-      setStatus('Added realm ' + realm);
+      setStatus('Added ' + (body.temporary ? 'temporary ' : '') + 'realm ' + realm);
     });
   });
 

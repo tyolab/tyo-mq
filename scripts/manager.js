@@ -114,12 +114,20 @@ async function addRealm() {
         return console.log('No realm name provided.');
 
     var requiredAnswer = await ask('Require auth for this realm? [Y/n]: ');
-    var response = await managementCommand({
+    var temporaryAnswer = await ask('Temporary (disposable) realm? [y/N]: ');
+    var body = {
         command: 'add_realm',
         realm: realm,
         required: requiredAnswer.toLowerCase() !== 'n'
-    });
-    console.log('Added realm: ' + realm);
+    };
+    if (temporaryAnswer.toLowerCase() === 'y') {
+        body.temporary = true;
+        var ttl = await ask('TTL before disposal (e.g. 30m, 2h, 7d) [default 1d]: ');
+        if (ttl)
+            body.ttl = ttl;
+    }
+    var response = await managementCommand(body);
+    console.log('Added ' + (body.temporary ? 'temporary' : 'permanent') + ' realm: ' + realm);
     console.log(JSON.stringify(response.settings.realms[realm], null, 2));
 }
 
