@@ -77,6 +77,11 @@ curl -X POST http://localhost:17352/api/realms \
 
 The response includes `ephemeral` and `expires_at`.
 
+For a self-contained implementation guide aimed at services and agents that
+provision ephemeral realms programmatically — creation paths, token minting,
+lifetime management, and the failure modes to handle — see
+[EPHEMERAL-REALMS.md](EPHEMERAL-REALMS.md).
+
 ## Naming Convention
 
 Use this realm naming pattern:
