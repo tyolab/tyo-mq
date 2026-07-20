@@ -31,5 +31,22 @@
     "filename": "tyo-mq.auth.sqlite"
   },
 
-  "namespaces": {}
+  "namespaces": {},
+
+  "limits": {
+    "enabled": false,
+    "trust_proxy": true,
+    "messages_per_second": 20,
+    "message_burst": 60,
+    "bytes_per_second": 262144,
+    "max_connections_per_ip": 20,
+    "connections_per_minute_per_ip": 60,
+    "max_registrations_per_socket": 50,
+    "max_registrations_per_realm": 500,
+    "max_subscriptions_per_socket": 50,
+    "max_subscriptions_per_realm": 500,
+    "max_queued_per_realm": 1000,
+    "realms_per_hour_per_ip": 10,
+    "max_pending_authorization_requests": 1000
+  }
 }
