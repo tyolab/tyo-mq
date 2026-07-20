@@ -218,6 +218,38 @@ default is to require it). Individual endpoints can be switched off with
 Management (write) operations intentionally stay on the signed socket
 command channel — the HTTP surface is read-only by design.
 
+## Rate limits and quotas (opt-in)
+
+For public or multi-tenant deployments, a `limits` settings block turns on
+abuse protection — entirely inert without it:
+
+```json
+{
+  "limits": {
+    "trust_proxy": true,
+    "messages_per_second": 20, "message_burst": 60,
+    "bytes_per_second": 262144,
+    "max_connections_per_ip": 20, "connections_per_minute_per_ip": 60,
+    "max_registrations_per_socket": 50, "max_registrations_per_realm": 500,
+    "max_subscriptions_per_socket": 50, "max_subscriptions_per_realm": 500,
+    "max_queued_per_realm": 1000,
+    "realms_per_hour_per_ip": 10,
+    "max_pending_authorization_requests": 1000,
+    "realms": { "org:vip": { "messages_per_second": 200 } }
+  }
+}
+```
+
+Every limit is independent and optional (absent = unlimited), hot-reloads
+from the settings file, and can be overridden per realm under
+`limits.realms` — the basis for tiered service. Throttled clients receive
+`RATE_LIMITED { code: 429, reason, retry_after }` (at most once a second
+per socket); connection-level breaches disconnect; every enforcement is
+counted in `tyo_mq_rate_limited_total{reason}` on the metrics endpoint.
+Behind a reverse proxy, set `trust_proxy: true` so per-IP limits use
+`X-Forwarded-For`. The durable-queue cap applies on memory and sqlite
+storage (backends that report queue depth).
+
 ## Custom namespaces (opt-in)
 
 The broker can host additional socket.io namespaces from operator-supplied
