@@ -331,6 +331,53 @@ test('dlq management commands list, replay, and discard messages', async () => {
     }
 });
 
+test('ephemeral_only management tokens can never mint permanent realms', async () => {
+    const server = await startServer({
+        http_api: { enabled: true },
+        auth: {
+            enabled: true,
+            tokens: [{ token: 'admin-tok', realm: '*', role: 'admin' }],
+            management_tokens: [{
+                token: 'play-mgmt-tok', realm_prefix: 'trymq:', ephemeral_only: true, max_ttl: '7d'
+            }]
+        }
+    });
+    try {
+        // A plain create (no lifetime fields) still comes out ephemeral.
+        const plain = await httpPost(server.port, '/api/realms',
+            { realm: 'trymq:user:plain', manager_key: 'k1' },
+            { authorization: 'Bearer play-mgmt-tok' });
+        assert.strictEqual(plain.status, 200, plain.body);
+        const plainBody = JSON.parse(plain.body);
+        assert.strictEqual(plainBody.ephemeral, true, 'must be forced ephemeral');
+        assert.ok(plainBody.expires_at > Date.now(), 'must carry an expiry');
+
+        // Even an explicit ephemeral:false is overridden.
+        const sneaky = await httpPost(server.port, '/api/realms',
+            { realm: 'trymq:user:sneaky', manager_key: 'k2', ephemeral: false },
+            { authorization: 'Bearer play-mgmt-tok' });
+        assert.strictEqual(JSON.parse(sneaky.body).ephemeral, true, 'ephemeral:false must not stick');
+
+        // Requested TTLs are capped at max_ttl (7d here, 30d asked).
+        const greedy = await httpPost(server.port, '/api/realms',
+            { realm: 'trymq:user:greedy', manager_key: 'k3', ttl: '30d' },
+            { authorization: 'Bearer play-mgmt-tok' });
+        const greedyBody = JSON.parse(greedy.body);
+        const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+        assert.ok(greedyBody.expires_at <= Date.now() + sevenDaysMs + 5000,
+            'ttl must be capped at max_ttl');
+
+        // A ttl under the cap is honoured as asked.
+        const modest = await httpPost(server.port, '/api/realms',
+            { realm: 'trymq:user:modest', manager_key: 'k4', ttl: '1h' },
+            { authorization: 'Bearer play-mgmt-tok' });
+        const modestBody = JSON.parse(modest.body);
+        assert.ok(modestBody.expires_at <= Date.now() + 60 * 60 * 1000 + 5000, 'short ttl honoured');
+    } finally {
+        await server.close();
+    }
+});
+
 test('create-realm endpoint is not served when no management token is configured', async () => {
     const server = await startServer({
         http_api: { enabled: true },

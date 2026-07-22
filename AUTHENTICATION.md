@@ -442,8 +442,15 @@ Manage HTTP-management-API bearer tokens (`auth.management_tokens`) with:
 
 ```json
 { "command": "add_management_token", "token": "<random hex>", "realm_prefix": "apps:tyoman:" }
+{ "command": "add_management_token", "token": "<random hex>", "realm_prefix": "trymq:", "ephemeral_only": true, "max_ttl": "7d" }
 { "command": "revoke_management_token", "token_hash": "<sha256 from get>" }
 ```
+
+A token marked `ephemeral_only` can never mint a permanent realm through
+`POST /api/realms` — every realm it creates is ephemeral regardless of the
+request body, with the requested TTL capped at `max_ttl`. This is the
+guarantee for public playground deployments where provisioned realms must
+always clean themselves up.
 
 `get` never returns raw management tokens — only `{realm_prefix, token_hash}` —
 so revocation is by hash. The browser manager's "Management API Tokens" panel
