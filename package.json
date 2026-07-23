@@ -1,10 +1,10 @@
 {
   "name": "tyo-mq",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "description": "Distributed Message Pub/Sub Service with socket.io",
   "main": "index.js",
   "scripts": {
-    "test": "node tests/server.test.js && node tests/phase1-auth-realms.test.js && node tests/auth-store.test.js && node tests/namespaces.test.js && node tests/limits.test.js && node tests/phase1-roles-authorization.test.js && node tests/phase2-persistence.test.js && node tests/phase3-reliability.test.js && node tests/phase4-routing.test.js && node tests/phase5-http-api.test.js && node tests/phase6-cluster.test.js && node tests/remote-namespace.test.js",
+    "test": "node tests/server.test.js && node tests/phase1-auth-realms.test.js && node tests/auth-store.test.js && node tests/admin-signature.test.js && node tests/namespaces.test.js && node tests/limits.test.js && node tests/phase1-roles-authorization.test.js && node tests/phase2-persistence.test.js && node tests/phase3-reliability.test.js && node tests/phase4-routing.test.js && node tests/phase5-http-api.test.js && node tests/phase6-cluster.test.js && node tests/remote-namespace.test.js",
     "test:phase1": "node tests/phase1-auth-realms.test.js",
     "test:auth-store": "node tests/auth-store.test.js",
     "test:namespaces": "node tests/namespaces.test.js",
