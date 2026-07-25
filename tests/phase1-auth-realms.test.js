@@ -991,6 +991,120 @@ test('set_realm_lifetime converts realms between ephemeral and permanent', async
     }
 });
 
+test('a realm manager_key can extend its own realm lifetime, but not another realm', async () => {
+    const adminToken = 'secret-admin';
+    const roomKey = 'room-manager-key';
+    const otherKey = 'other-manager-key';
+    const startExpiry = Date.now() + 5 * 60 * 1000;
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            realms: {
+                'scoped:room':  { required: true, ephemeral: true, expires_at: startExpiry, manager_key: roomKey },
+                'scoped:other': { required: true, ephemeral: true, expires_at: startExpiry, manager_key: otherKey }
+            },
+            tokens: [
+                { token: adminToken, realm: '*', role: 'admin' }
+            ]
+        }
+    });
+    const options = {host: '127.0.0.1', port: authServer.port, protocol: 'http'};
+
+    try {
+        // The realm's own manager_key may push its expiry out — no admin token.
+        const extended = await Authorization.authManagementCommand(roomKey, {
+            command: 'set_realm_lifetime',
+            realm: 'scoped:room',
+            ttl: '2h'
+        }, options);
+        const newExpiry = extended.settings.realms['scoped:room'].expires_at;
+        assert.ok(newExpiry > startExpiry, 'expiry should be pushed further out');
+        assert.ok(newExpiry > Date.now() + 60 * 60 * 1000, 'the 2h ttl should apply');
+
+        // The response is scoped: a realm manager must not see other realms.
+        assert.strictEqual(extended.realm, 'scoped:room');
+        assert.strictEqual(extended.settings.realms['scoped:other'], undefined,
+            'a realm-scoped response must not leak other realms');
+
+        // A realm key cannot act on a realm it does not manage — the proof is
+        // verified against that realm's own key, which will not match.
+        const crossRealm = await Authorization.authManagementCommand(roomKey, {
+            command: 'set_realm_lifetime',
+            realm: 'scoped:other',
+            ttl: '2h'
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(crossRealm.code, 401);
+        assert.strictEqual(authServer.server.settings.get().auth.realms['scoped:other'].expires_at, startExpiry,
+            'the other realm must be untouched');
+
+        // A realm key may also toggle its own acceptance gate (whitelisted)...
+        const gated = await Authorization.authManagementCommand(roomKey, {
+            command: 'set_realm_acceptance',
+            realm: 'scoped:room',
+            required: true
+        }, options);
+        assert.strictEqual(gated.settings.realms['scoped:room'].require_acceptance, true);
+
+        // ...but NOT a command outside the realm-scoped whitelist (add_realm).
+        const forbidden = await Authorization.authManagementCommand(roomKey, {
+            command: 'add_realm',
+            realm: 'scoped:sneaky',
+            manager_key: 'x'
+        }, options).then(() => null).catch(err => err.response);
+        assert.strictEqual(forbidden.code, 401);
+        assert.strictEqual(authServer.server.settings.get().auth.realms['scoped:sneaky'], undefined,
+            'a non-whitelisted realm-scoped command must not take effect');
+    } finally {
+        await authServer.close();
+    }
+});
+
+test('a realm-scoped set_realm_lifetime is capped by its provisioning token limits', async () => {
+    const adminToken = 'secret-admin';
+    const playKey = 'play-room-key';
+    const authServer = await startServer({
+        auth: {
+            enabled: true,
+            management_tokens: [
+                { token: 'play-mgmt', realm_prefix: 'play:', ephemeral_only: true, max_ttl: '1h' }
+            ],
+            realms: {
+                'play:room': { required: true, ephemeral: true, expires_at: Date.now() + 60 * 1000, manager_key: playKey }
+            },
+            tokens: [
+                { token: adminToken, realm: '*', role: 'admin' }
+            ]
+        }
+    });
+    const options = {host: '127.0.0.1', port: authServer.port, protocol: 'http'};
+
+    try {
+        // The realm owner asks for 30 days AND to go permanent; the ephemeral_only
+        // + max_ttl:1h provisioning token must clamp both.
+        const capped = await Authorization.authManagementCommand(playKey, {
+            command: 'set_realm_lifetime',
+            realm: 'play:room',
+            ephemeral: false,
+            ttl: '30d'
+        }, options);
+        const realmCfg = capped.settings.realms['play:room'];
+        assert.strictEqual(realmCfg.ephemeral, true, 'ephemeral_only must forbid going permanent');
+        assert.ok(realmCfg.expires_at <= Date.now() + 60 * 60 * 1000 + 5000, 'max_ttl of 1h must cap the extend');
+        assert.ok(realmCfg.expires_at > Date.now() + 55 * 60 * 1000, 'the cap should still grant close to 1h');
+
+        // The global admin token stays unrestricted by the provisioning limits.
+        const adminExtend = await Authorization.authManagementCommand(adminToken, {
+            command: 'set_realm_lifetime',
+            realm: 'play:room',
+            ttl: '30d'
+        }, options);
+        assert.ok(adminExtend.settings.realms['play:room'].expires_at > Date.now() + 20 * 24 * 60 * 60 * 1000,
+            'admin extends are not capped by management-token limits');
+    } finally {
+        await authServer.close();
+    }
+});
+
 test('expired ephemeral realms left over from a previous run are swept at startup', async () => {
     const adminToken = 'secret-admin';
     const authServer = await startServer({
