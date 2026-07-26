@@ -12,6 +12,7 @@ const assert = require('assert');
 const { test, run } = require('./runner');
 const { startServer, delay } = require('./helpers');
 const Factory = require('../lib/factory');
+const Constants = require('../lib/constants');
 
 function clientOpts(port) {
     return { host: '127.0.0.1', port: port, protocol: 'http' };
@@ -82,6 +83,45 @@ test('the directory is scoped per realm — a key published in one realm is invi
 
         inA.disconnect();
         inB.disconnect();
+    } finally {
+        await srv.close();
+    }
+});
+
+test('KEY_PUBLISH enforces size and per-identity caps', async () => {
+    const srv = await startServer({});
+    try {
+        const dev = await new Factory(clientOpts(srv.port)).createConsumer('dev-consumer');
+        await delay(200);
+
+        // An oversized public key is rejected outright.
+        await assert.rejects(
+            () => dev.publishKey({ key_id: 'big', public_key: 'x'.repeat(Constants.E2EE_MAX_PUBLIC_KEY_LENGTH + 1) }),
+            /public_key exceeds/
+        );
+
+        // An oversized key_id is rejected.
+        await assert.rejects(
+            () => dev.publishKey({ key_id: 'k'.repeat(Constants.E2EE_MAX_KEY_ID_LENGTH + 1), public_key: 'PUB' }),
+            /key_id/
+        );
+
+        // The per-identity distinct-key_id cap: fill it, then one more fails...
+        for (let i = 0; i < Constants.E2EE_MAX_KEYS_PER_IDENTITY; i++)
+            await dev.publishKey({ key_id: 'k' + i, public_key: 'PUB' + i });
+        await assert.rejects(
+            () => dev.publishKey({ key_id: 'one-too-many', public_key: 'PUB' }),
+            /published keys/
+        );
+
+        // ...but republishing (rotating) an existing key_id still succeeds.
+        const rotated = await dev.publishKey({ key_id: 'k0', public_key: 'ROTATED' });
+        assert.strictEqual(rotated.ok, true);
+        const keys = await dev.lookupKey('dev-consumer');
+        assert.strictEqual(keys.length, Constants.E2EE_MAX_KEYS_PER_IDENTITY);
+        assert.strictEqual(keys.filter(k => k.key_id === 'k0')[0].public_key, 'ROTATED');
+
+        dev.disconnect();
     } finally {
         await srv.close();
     }
