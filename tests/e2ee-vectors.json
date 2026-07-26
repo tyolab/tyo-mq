@@ -1,0 +1,20 @@
+{
+  "suite": "ecdh-es-p256-a256gcm",
+  "recipient_private_b64": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+  "recipient_public_b64": "BFFcPW6545a5BNP+yn9U/c0MwemXvzddylFa0KbDtANfRTa+OlDzGPv5pUdZAqIhUCvvDVfgjFOyzApW8X2fk1Q=",
+  "routing": {
+    "event": "command",
+    "to": "dev-1",
+    "from": "op-console",
+    "kid": "dev-1-enc"
+  },
+  "plaintext_utf8": "{\"cmd\":\"whoami\",\"shell\":\"bash\"}",
+  "enc": {
+    "v": 1,
+    "alg": "ecdh-es-p256-a256gcm",
+    "epk": "BB8UAUa/sbJR+E9N2+DUzc/Xev2YSpUg41eUAh+DErue7JlaCLH6dwTfPcwLUKlmUmP7dxH5X5+KRJxQluR8iSs=",
+    "iv": "oKGio6Slpqeoqaqr",
+    "kid": "dev-1-enc"
+  },
+  "message_b64": "l0JqfoUZvV5u1FXmChhWm/OzPvycOk7ufKYS6kblaRGMjiIEtQYkw1qNXnpjaXM="
+}
