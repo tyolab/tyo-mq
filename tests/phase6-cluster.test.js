@@ -458,4 +458,50 @@ test('realm broadcast reaches subscribers connected to peer nodes', async () => 
     }
 });
 
+test('E2EE key published on one node is discoverable from peer and late-joining nodes', async () => {
+    const hub = new FakeRedisHub();
+    const nodeA = await clusterNode(hub, 'p6-e2ee-keys');
+    const nodeB = await clusterNode(hub, 'p6-e2ee-keys');
+
+    let consumer;
+    let producerB;
+    let producerC;
+    let nodeC;
+    try {
+        await delay(300);
+
+        consumer = await relayFactory(nodeA.port).createConsumer('p6-key-consumer');
+        producerB = await relayFactory(nodeB.port).createProducer('p6-key-producer');
+        await delay(200);
+
+        const published = await consumer.publishKey({
+            key_id: 'p6-k1', alg: 'ecdh-es-p256-a256gcm', public_key: 'P6-PUBKEY'
+        });
+        assert.strictEqual(published.ok, true);
+        await delay(400); // mirror → redis → peer change notification → adoption
+
+        // A peer node that was already running sees the key.
+        const fromB = await producerB.lookupKey('p6-key-consumer');
+        assert.strictEqual(fromB.length, 1, 'peer node must see the published key');
+        assert.strictEqual(fromB[0].key_id, 'p6-k1');
+        assert.strictEqual(fromB[0].public_key, 'P6-PUBKEY');
+
+        // A node that joins AFTER the publish adopts the directory at startup.
+        nodeC = await clusterNode(hub, 'p6-e2ee-keys');
+        await delay(400);
+        producerC = await relayFactory(nodeC.port).createProducer('p6-late-producer');
+        await delay(200);
+        const fromC = await producerC.lookupKey('p6-key-consumer');
+        assert.strictEqual(fromC.length, 1, 'late-joining node must adopt the directory');
+        assert.strictEqual(fromC[0].public_key, 'P6-PUBKEY');
+    } finally {
+        if (consumer) consumer.disconnect();
+        if (producerB) producerB.disconnect();
+        if (producerC) producerC.disconnect();
+        await nodeA.close();
+        await nodeB.close();
+        if (nodeC) await nodeC.close();
+    }
+});
+
 run();
