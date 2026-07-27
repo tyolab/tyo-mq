@@ -23,7 +23,7 @@ if (authStore === 'true' || authStore === true)
 else if (authStore === 'false' || !authStore)
     authStore = undefined;
 
-var server = new Server({
+var serverOptions = {
     serveClient: false,
     pingInterval: 5000,
     pingTimeout: 10000,
@@ -57,7 +57,18 @@ var server = new Server({
         auto_admin_token: process.env.TYO_MQ_AUTO_ADMIN_TOKEN !== 'false'
     },
     auth_store: authStore,
-});
+};
+
+// Max socket.io frame size in bytes. The library default is 50 MB — far larger
+// than any real message needs and a memory-spike risk on small hosts; bulk data
+// belongs on HTTP, not the bus. Set TYO_MQ_MAX_HTTP_BUFFER_SIZE per deploy to
+// cap it. NB: this also bounds /remote desktop frames (base64 JPEG), so leave
+// headroom on hosts that serve remote-desktop.
+var maxHttpBufferSize = parseInt(process.env.TYO_MQ_MAX_HTTP_BUFFER_SIZE, 10);
+if (Number.isFinite(maxHttpBufferSize) && maxHttpBufferSize > 0)
+    serverOptions.maxHttpBufferSize = maxHttpBufferSize;
+
+var server = new Server(serverOptions);
 
 if (process.env.TYO_MQ_SETTINGS_FILE)
     server.loadSettings(process.env.TYO_MQ_SETTINGS_FILE);
