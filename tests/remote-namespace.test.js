@@ -154,6 +154,33 @@ test('frame relay: agent frame arrives at viewer as binary Buffer', async () => 
     viewerSock.disconnect();
 });
 
+test('frame relay: agent binary frame (no base64) forwards to viewer byte-for-byte', async () => {
+    const sessionId = 'sess-binframe-' + Date.now();
+    const agentTicket = server.remote.issueTicket({ session_id: sessionId, realm: 'test', machine_id: 'host-1', role: 'agent' });
+    const viewerTicket = server.remote.issueTicket({ session_id: sessionId, realm: 'test', machine_id: 'host-1', role: 'viewer' });
+
+    const { socket: agentSock } = await connectRemote(agentTicket, 'agent', sessionId);
+    const { socket: viewerSock } = await connectRemote(viewerTicket, 'viewer', sessionId);
+
+    // The new-agent shape: an 8-byte header (magic 0x54) + JPEG, sent as a raw
+    // binary attachment (no base64 envelope) — what tyo-mq-client-go EmitBinary
+    // produces.
+    const headeredFrame = Buffer.from([0x54, 0x01, 0x00, 0x00, 0x00, 0x2a, 0x00, 0x00, 0xff, 0xd8, 0xff, 0xe0]);
+
+    const received = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('frame timeout')), 4000);
+        viewerSock.on('frame', data => { clearTimeout(timer); resolve(data); });
+        agentSock.emit('frame', headeredFrame); // raw binary Buffer, not { frame: base64 }
+    });
+
+    assert.ok(Buffer.isBuffer(received) || received instanceof Uint8Array, 'viewer should receive binary');
+    const buf = Buffer.isBuffer(received) ? received : Buffer.from(received);
+    assert.deepStrictEqual(buf, headeredFrame, 'binary frame must relay byte-for-byte (no base64 round-trip)');
+
+    agentSock.disconnect();
+    viewerSock.disconnect();
+});
+
 test('input relay: viewer input.mouse arrives at agent', async () => {
     const sessionId = 'sess-input-' + Date.now();
     const agentTicket = server.remote.issueTicket({ session_id: sessionId, realm: 'test', machine_id: 'host-1', role: 'agent' });
