@@ -19,11 +19,15 @@ function clientOpts(port, auth) {
 function bundle(overrides) {
     return Object.assign({
         identity_key: 'IDENT-PUB',
-        signed_prekey: 'SIGNED-PUB',
-        signed_prekey_sig: 'SIGNED-SIG',
         registration_id: 4242,
         device_id: 1,
-        one_time_prekeys: ['OTP-1', 'OTP-2', 'OTP-3'],
+        signed_prekey_id: 7,
+        signed_prekey: 'SIGNED-PUB',
+        signed_prekey_sig: 'SIGNED-SIG',
+        kyber_prekey_id: 9,           // PQXDH: signed Kyber prekey
+        kyber_prekey: 'KYBER-PUB',
+        kyber_prekey_sig: 'KYBER-SIG',
+        one_time_prekeys: [{ id: 1, key: 'OTP-1' }, { id: 2, key: 'OTP-2' }, { id: 3, key: 'OTP-3' }],
     }, overrides);
 }
 
@@ -43,13 +47,19 @@ test('publish a bundle; a peer takes it and consumes one-time prekeys one at a t
         assert.strictEqual(b1.found, true);
         assert.strictEqual(b1.identity_key, 'IDENT-PUB');
         assert.strictEqual(b1.signed_prekey, 'SIGNED-PUB');
+        assert.strictEqual(b1.signed_prekey_id, 7);
+        assert.strictEqual(b1.kyber_prekey, 'KYBER-PUB');       // PQXDH carried through
+        assert.strictEqual(b1.kyber_prekey_sig, 'KYBER-SIG');
+        assert.strictEqual(b1.kyber_prekey_id, 9);
         assert.strictEqual(b1.registration_id, 4242);
         assert.strictEqual(b1.one_time_prekey, 'OTP-1');
+        assert.strictEqual(b1.one_time_prekey_id, 1);           // id travels with the key
         assert.strictEqual(b1.one_time_remaining, 2);
 
         // A second take consumes a DIFFERENT one-time prekey (never reused).
         const b2 = await bob.takePrekeys('alice');
         assert.strictEqual(b2.one_time_prekey, 'OTP-2');
+        assert.strictEqual(b2.one_time_prekey_id, 2);
         const b3 = await bob.takePrekeys('alice');
         assert.strictEqual(b3.one_time_prekey, 'OTP-3');
 
@@ -59,6 +69,8 @@ test('publish a bundle; a peer takes it and consumes one-time prekeys one at a t
         assert.strictEqual(b4.found, true);
         assert.strictEqual(b4.identity_key, 'IDENT-PUB');
         assert.strictEqual(b4.one_time_prekey, null);
+        assert.strictEqual(b4.one_time_prekey_id, null);
+        assert.strictEqual(b4.kyber_prekey, 'KYBER-PUB');       // static PQXDH part still served
         assert.strictEqual(b4.one_time_remaining, 0);
 
         alice.disconnect();
@@ -75,11 +87,11 @@ test('republishing replenishes the one-time pool and rotates the signed prekey',
         const bob = await new Factory(clientOpts(srv.port)).createProducer('bob');
         await delay(150);
 
-        await alice.publishPrekeys(bundle({ one_time_prekeys: ['OTP-1'] }));
+        await alice.publishPrekeys(bundle({ one_time_prekeys: [{ id: 1, key: 'OTP-1' }] }));
         await bob.takePrekeys('alice'); // consumes OTP-1 → pool empty
 
         // Replenish + rotate the signed prekey.
-        const pub = await alice.publishPrekeys(bundle({ signed_prekey: 'SIGNED-PUB-v2', one_time_prekeys: ['OTP-9'] }));
+        const pub = await alice.publishPrekeys(bundle({ signed_prekey: 'SIGNED-PUB-v2', one_time_prekeys: [{ id: 9, key: 'OTP-9' }] }));
         assert.strictEqual(pub.one_time_available, 1);
 
         const b = await bob.takePrekeys('alice');
@@ -136,6 +148,21 @@ test('the prekey directory is realm-isolated', async () => {
 
         inA.disconnect();
         inB.disconnect();
+    } finally {
+        await srv.close();
+    }
+});
+
+test('a bundle without the Kyber prekey is rejected (PQXDH required)', async () => {
+    const srv = await startServer({});
+    try {
+        const alice = await new Factory(clientOpts(srv.port)).createConsumer('alice');
+        await delay(150);
+        const noKyber = bundle();
+        delete noKyber.kyber_prekey;
+        delete noKyber.kyber_prekey_sig;
+        await assert.rejects(() => alice.publishPrekeys(noKyber), /kyber_prekey/);
+        alice.disconnect();
     } finally {
         await srv.close();
     }
