@@ -173,4 +173,128 @@ test('SEALED_UAK_SET stores per-realm and validates mode + uak length', async ()
     }
 });
 
+// ── SEALED_DELIVER ──────────────────────────────────────────────────────
+// The sender connects ANONYMOUSLY (Factory.createProducer() with no name
+// mints ANONYMOUS-<uuid> — see lib/subscriber.js, which Publisher extends).
+// The default realm permits anonymous producers/consumers (isAnonymousAllowed
+// falls back to `realmId === DEFAULT_REALM` since sealedRealmOptions() sets
+// no allow_anonymous override), so no extra realm config is needed here.
+
+test('SEALED_DELIVER authorises on UAK and delivers online with no sender', async () => {
+    const env = installSealedEnv();
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        const bobFactory = new Factory(clientOpts(srv.port));
+        const bob = await bobFactory.createConsumer('bob');
+        // capture SEALED_MESSAGE on bob's socket:
+        const received = [];
+        bob.socket.on('SEALED_MESSAGE', function (p) { received.push(p); });
+        await delay(150);
+        const uak = Buffer.alloc(16, 9);
+        const setRes = await sealedCall(bob, 'SEALED_UAK_SET', { identity: 'bob', uak: uak.toString('base64'), mode: 'require-uak' });
+        assert.strictEqual(setRes.ok, true);
+
+        // anonymous sender (no name):
+        const anon = await new Factory(clientOpts(srv.port)).createProducer();   // ANONYMOUS-<uuid>
+        await delay(150);
+        const realmId = 'default';   // DEFAULT_REALM; both clients connect without an explicit realm.
+        const okDeliver = await sealedCall(anon, 'SEALED_DELIVER', { to: { realm: realmId, identity: 'bob' }, uak: uak.toString('base64'), blob: Buffer.from('sealed-bytes').toString('base64'), msg_id: 'm1' });
+        assert.strictEqual(okDeliver.ok, true);
+        assert.strictEqual(okDeliver.delivered, 'online');
+        await delay(100);
+        assert.strictEqual(received.length, 1);
+        assert.strictEqual(received[0].msg_id, 'm1');
+        assert.ok(!('from' in received[0]) && !('sender' in received[0]));   // no sender on the wire
+
+        // wrong UAK -> 403, nothing delivered:
+        const badUak = Buffer.alloc(16, 1);
+        const bad = await sealedCall(anon, 'SEALED_DELIVER', { to: { realm: realmId, identity: 'bob' }, uak: badUak.toString('base64'), blob: Buffer.from('x').toString('base64') });
+        assert.strictEqual(bad.ok, false); assert.strictEqual(bad.code, 403);
+        await delay(80);
+        assert.strictEqual(received.length, 1);   // still only the first
+
+        // unknown recipient -> 404:
+        const unknown = await sealedCall(anon, 'SEALED_DELIVER', { to: { realm: realmId, identity: 'ghost' }, uak: uak.toString('base64'), blob: 'AAAA' });
+        assert.strictEqual(unknown.ok, false); assert.strictEqual(unknown.code, 404);
+    } finally { await srv.close(); env.restore(); }
+});
+
+test('SEALED_DELIVER in unrestricted mode delivers with no uak presented', async () => {
+    const env = installSealedEnv();
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        const bob = await new Factory(clientOpts(srv.port)).createConsumer('bob');
+        const received = [];
+        bob.socket.on('SEALED_MESSAGE', function (p) { received.push(p); });
+        await delay(150);
+        const setRes = await sealedCall(bob, 'SEALED_UAK_SET', { identity: 'bob', mode: 'unrestricted' });
+        assert.strictEqual(setRes.ok, true);
+        assert.strictEqual(setRes.mode, 'unrestricted');
+
+        const anon = await new Factory(clientOpts(srv.port)).createProducer();   // ANONYMOUS-<uuid>
+        await delay(150);
+        // No uak at all — unrestricted mode must skip the UAK check.
+        const okDeliver = await sealedCall(anon, 'SEALED_DELIVER', { to: { realm: 'default', identity: 'bob' }, blob: Buffer.from('open-bytes').toString('base64'), msg_id: 'u1' });
+        assert.strictEqual(okDeliver.ok, true);
+        assert.strictEqual(okDeliver.delivered, 'online');
+        await delay(100);
+        assert.strictEqual(received.length, 1);
+        assert.strictEqual(received[0].msg_id, 'u1');
+        assert.ok(!('from' in received[0]) && !('sender' in received[0]));
+    } finally { await srv.close(); env.restore(); }
+});
+
+test('SEALED_DELIVER routes cross-realm: anon sender on default reaches bob in acme', async () => {
+    const env = installSealedEnv();
+    // Two e2ee-enabled realms; required:false so a client may declare a realm
+    // via auth.realm without presenting a token (mirrors tests/e2ee-directory.js).
+    const srv = await startServer({ auth: { enabled: true, realms: {
+        default: { required: false, e2ee: 'required' },
+        acme: { required: false, e2ee: 'required' },
+    } } });
+    try {
+        // Bob lives in realm 'acme'.
+        const bob = await new Factory(clientOpts(srv.port, { realm: 'acme' })).createConsumer('bob');
+        const received = [];
+        bob.socket.on('SEALED_MESSAGE', function (p) { received.push(p); });
+        await delay(150);
+        const uak = Buffer.alloc(16, 5);
+        const setRes = await sealedCall(bob, 'SEALED_UAK_SET', { identity: 'bob', uak: uak.toString('base64'), mode: 'require-uak' });
+        assert.strictEqual(setRes.ok, true);
+
+        // Anonymous sender stays on 'default'.
+        const anon = await new Factory(clientOpts(srv.port, { realm: 'default' })).createProducer();
+        await delay(150);
+        const okDeliver = await sealedCall(anon, 'SEALED_DELIVER', { to: { realm: 'acme', identity: 'bob' }, uak: uak.toString('base64'), blob: Buffer.from('cross-realm').toString('base64'), msg_id: 'x1' });
+        assert.strictEqual(okDeliver.ok, true);
+        assert.strictEqual(okDeliver.delivered, 'online');
+        await delay(100);
+        assert.strictEqual(received.length, 1);
+        assert.strictEqual(received[0].msg_id, 'x1');
+        assert.ok(!('from' in received[0]) && !('sender' in received[0]));
+    } finally { await srv.close(); env.restore(); }
+});
+
+test('SEALED_DELIVER rejects an over-large blob and prototype-key recipients', async () => {
+    const env = installSealedEnv();
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        const anon = await new Factory(clientOpts(srv.port)).createProducer();
+        await delay(150);
+
+        // blob past the base64 length bound -> 400.
+        const tooBig = 'A'.repeat(Math.ceil(65536 * 4 / 3) + 8);
+        const big = await sealedCall(anon, 'SEALED_DELIVER', { to: { realm: 'default', identity: 'nobody' }, uak: Buffer.alloc(16).toString('base64'), blob: tooBig });
+        assert.strictEqual(big.ok, false); assert.strictEqual(big.code, 400);
+
+        // prototype-key identity must not resolve to an inherited value -> 404.
+        const proto = await sealedCall(anon, 'SEALED_DELIVER', { to: { realm: 'default', identity: '__proto__' }, uak: Buffer.alloc(16).toString('base64'), blob: 'AAAA' });
+        assert.strictEqual(proto.ok, false); assert.strictEqual(proto.code, 404);
+
+        // prototype-key realm likewise -> 404.
+        const protoRealm = await sealedCall(anon, 'SEALED_DELIVER', { to: { realm: '__proto__', identity: 'bob' }, uak: Buffer.alloc(16).toString('base64'), blob: 'AAAA' });
+        assert.strictEqual(protoRealm.ok, false); assert.strictEqual(protoRealm.code, 404);
+    } finally { await srv.close(); env.restore(); }
+});
+
 run(); // executes the registered tests (repo runner); keep LAST
