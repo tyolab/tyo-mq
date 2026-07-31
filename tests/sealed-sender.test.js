@@ -297,4 +297,69 @@ test('SEALED_DELIVER rejects an over-large blob and prototype-key recipients', a
     } finally { await srv.close(); env.restore(); }
 });
 
+test('SEALED_DELIVER queues for an offline recipient; SEALED_SUBSCRIBE replays once', async () => {
+    const env = installSealedEnv();
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        // bob registers + sets UAK, then DISCONNECTS (goes offline).
+        const uak = Buffer.alloc(16, 5);
+        let bob = await new Factory(clientOpts(srv.port)).createConsumer('bob');
+        await delay(150);
+        await sealedCall(bob, 'SEALED_UAK_SET', { identity: 'bob', uak: uak.toString('base64'), mode: 'require-uak' });
+        bob.disconnect();
+        await delay(150);
+
+        // anon sender delivers while bob is offline -> queued.
+        const anon = await new Factory(clientOpts(srv.port)).createProducer();
+        await delay(150);
+        const q = await sealedCall(anon, 'SEALED_DELIVER', { to: { realm: 'default', identity: 'bob' }, uak: uak.toString('base64'), blob: Buffer.from('offline-bytes').toString('base64'), msg_id: 'q1' });
+        assert.strictEqual(q.ok, true); assert.strictEqual(q.delivered, 'queued');
+
+        // bob reconnects, registers, subscribes -> receives the queued message.
+        bob = await new Factory(clientOpts(srv.port)).createConsumer('bob');
+        const received = [];
+        bob.socket.on('SEALED_MESSAGE', function (p) { received.push(p); });
+        await delay(150);
+        const sub = await sealedCall(bob, 'SEALED_SUBSCRIBE', { identity: 'bob' });
+        assert.strictEqual(sub.ok, true);
+        await delay(120);
+        assert.strictEqual(received.length, 1);
+        assert.strictEqual(received[0].msg_id, 'q1');
+        assert.ok(!('from' in received[0]) && !('sender' in received[0]));
+
+        // a second SEALED_SUBSCRIBE replays nothing (already acked).
+        const sub2 = await sealedCall(bob, 'SEALED_SUBSCRIBE', { identity: 'bob' });
+        assert.strictEqual(sub2.ok, true);
+        assert.strictEqual(sub2.replayed, 0);
+        assert.strictEqual(sub2.more, false);
+    } finally { await srv.close(); env.restore(); }
+});
+
+test('SEALED_DELIVER offline enqueue is bounded by max_queued_per_realm (507 when full)', async () => {
+    const env = installSealedEnv();
+    // cap the default realm's durable queue at 1 message.
+    const srv = await startServer({
+        auth: { realms: { default: { e2ee: 'required' } } },
+        limits: { enabled: true, max_queued_per_realm: 1 },
+    });
+    try {
+        const uak = Buffer.alloc(16, 5);
+        const bob = await new Factory(clientOpts(srv.port)).createConsumer('bob');
+        await delay(150);
+        await sealedCall(bob, 'SEALED_UAK_SET', { identity: 'bob', uak: uak.toString('base64'), mode: 'require-uak' });
+        bob.disconnect();
+        await delay(150);
+
+        const anon = await new Factory(clientOpts(srv.port)).createProducer();
+        await delay(150);
+        const to = { realm: 'default', identity: 'bob' };
+        // first offline message fills the queue to the cap.
+        const q1 = await sealedCall(anon, 'SEALED_DELIVER', { to, uak: uak.toString('base64'), blob: Buffer.from('a').toString('base64'), msg_id: 'c1' });
+        assert.strictEqual(q1.ok, true); assert.strictEqual(q1.delivered, 'queued');
+        // second is refused: recipient queue full -> 507.
+        const q2 = await sealedCall(anon, 'SEALED_DELIVER', { to, uak: uak.toString('base64'), blob: Buffer.from('b').toString('base64'), msg_id: 'c2' });
+        assert.strictEqual(q2.ok, false); assert.strictEqual(q2.code, 507);
+    } finally { await srv.close(); env.restore(); }
+});
+
 run(); // executes the registered tests (repo runner); keep LAST
