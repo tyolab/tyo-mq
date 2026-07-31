@@ -3,6 +3,8 @@ const assert = require('assert');
 const { test, run } = require('./runner');
 const { PrivateKey, ServerCertificate, SenderCertificate } = require('@signalapp/libsignal-client');
 const sealed = require('../lib/sealed-sender');
+const { startServer, delay } = require('./helpers');
+const Factory = require('../lib/factory');
 
 // Build an in-test CA: root -> server cert, and a client identity key.
 function makeCfgAndRoot() {
@@ -47,6 +49,88 @@ test('a sender cert does NOT validate against a different (foreign) root', () =>
         cfg, 'alice', clientKey.getPublicKey().serialize(), 1, 24 * 3600 * 1000, Date.now());
     const parsed = SenderCertificate.deserialize(senderCert);
     assert.strictEqual(parsed.validate(foreignRoot.getPublicKey(), Date.now()), false);
+});
+
+// ── SEALED_CERT_REQUEST broker-boot tests ──────────────────────────────────
+// Realm uses e2ee: 'required' (not 'off') for forward-compatibility with the
+// later gate that scopes sealed commands behind getRealmE2eePolicy(realm) !==
+// 'off' — mirrors the realm shape used in tests/e2ee-directory.test.js.
+
+function clientOpts(port, auth) {
+    return { host: '127.0.0.1', port: port, protocol: 'http', auth: auth };
+}
+
+function sealedRealmOptions() {
+    return { auth: { realms: { default: { e2ee: 'required' } } } };
+}
+
+function installSealedEnv() {
+    const root = PrivateKey.generate();
+    const serverKey = PrivateKey.generate();
+    const serverCert = ServerCertificate.new(1, serverKey.getPublicKey(), root);
+    const prev = { c: process.env.TYO_MQ_SEALED_SERVER_CERT, k: process.env.TYO_MQ_SEALED_SERVER_KEY };
+    process.env.TYO_MQ_SEALED_SERVER_CERT = Buffer.from(serverCert.serialize()).toString('base64');
+    process.env.TYO_MQ_SEALED_SERVER_KEY = Buffer.from(serverKey.serialize()).toString('base64');
+    return {
+        rootPub: root.getPublicKey(),
+        restore: () => {
+            process.env.TYO_MQ_SEALED_SERVER_CERT = prev.c;
+            process.env.TYO_MQ_SEALED_SERVER_KEY = prev.k;
+        },
+    };
+}
+
+function sealedCall(client, event, payload) {
+    return new Promise((resolve) => client.socket.emit(event, payload, resolve));
+}
+
+test('SEALED_CERT_REQUEST issues a cert for an owned identity, refuses unowned, and refuses when unconfigured', async () => {
+    const env = installSealedEnv();
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        const alice = await new Factory(clientOpts(srv.port)).createConsumer('alice');
+        await delay(150);
+
+        const ok = await sealedCall(alice, 'SEALED_CERT_REQUEST', {
+            identity: 'alice',
+            identity_key: Buffer.from(PrivateKey.generate().getPublicKey().serialize()).toString('base64'),
+            device_id: 1,
+        });
+        assert.strictEqual(ok.ok, true);
+        const parsed = SenderCertificate.deserialize(Buffer.from(ok.sender_cert, 'base64'));
+        assert.strictEqual(parsed.senderUuid(), 'alice');
+        assert.strictEqual(parsed.validate(env.rootPub, Date.now()), true);
+
+        const bad = await sealedCall(alice, 'SEALED_CERT_REQUEST', { identity: 'mallory', identity_key: 'AAAA' });
+        assert.strictEqual(bad.ok, false);
+        assert.strictEqual(bad.code, 403);
+
+        alice.disconnect();
+    } finally {
+        await srv.close();
+        env.restore();
+    }
+});
+
+test('SEALED_CERT_REQUEST returns 501 when the broker has no sealed config', async () => {
+    const prev = { c: process.env.TYO_MQ_SEALED_SERVER_CERT, k: process.env.TYO_MQ_SEALED_SERVER_KEY };
+    delete process.env.TYO_MQ_SEALED_SERVER_CERT;
+    delete process.env.TYO_MQ_SEALED_SERVER_KEY;
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        const alice = await new Factory(clientOpts(srv.port)).createConsumer('alice');
+        await delay(150);
+
+        const res = await sealedCall(alice, 'SEALED_CERT_REQUEST', { identity: 'alice', identity_key: 'AAAA' });
+        assert.strictEqual(res.ok, false);
+        assert.strictEqual(res.code, 501);
+
+        alice.disconnect();
+    } finally {
+        await srv.close();
+        process.env.TYO_MQ_SEALED_SERVER_CERT = prev.c;
+        process.env.TYO_MQ_SEALED_SERVER_KEY = prev.k;
+    }
 });
 
 run(); // executes the registered tests (repo runner); keep LAST
