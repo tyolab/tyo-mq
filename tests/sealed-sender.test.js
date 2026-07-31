@@ -133,4 +133,44 @@ test('SEALED_CERT_REQUEST returns 501 when the broker has no sealed config', asy
     }
 });
 
+test('SEALED_UAK_SET stores per-realm and validates mode + uak length', async () => {
+    const env = installSealedEnv();
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        const bob = await new Factory(clientOpts(srv.port)).createConsumer('bob');
+        await delay(150);
+        const u16 = Buffer.alloc(16, 7).toString('base64');
+        const ok = await sealedCall(bob, 'SEALED_UAK_SET', { identity: 'bob', uak: u16, mode: 'require-uak' });
+        assert.strictEqual(ok.ok, true);
+        assert.strictEqual(ok.mode, 'require-uak');
+
+        const short = await sealedCall(bob, 'SEALED_UAK_SET', { identity: 'bob', uak: Buffer.alloc(10).toString('base64'), mode: 'require-uak' });
+        assert.strictEqual(short.ok, false);
+        assert.strictEqual(short.code, 400);
+
+        const unrestricted = await sealedCall(bob, 'SEALED_UAK_SET', { identity: 'bob', mode: 'unrestricted' });
+        assert.strictEqual(unrestricted.ok, true);
+        assert.strictEqual(unrestricted.mode, 'unrestricted');
+
+        const unowned = await sealedCall(bob, 'SEALED_UAK_SET', { identity: 'carol', uak: u16, mode: 'require-uak' });
+        assert.strictEqual(unowned.ok, false);
+        assert.strictEqual(unowned.code, 403);
+
+        // mode omitted -> defaults to require-uak (needs a valid uak)
+        const defaulted = await sealedCall(bob, 'SEALED_UAK_SET', { identity: 'bob', uak: u16 });
+        assert.strictEqual(defaulted.ok, true);
+        assert.strictEqual(defaulted.mode, 'require-uak');
+
+        // explicit-but-unrecognized mode -> 400 (no silent coercion)
+        const bogus = await sealedCall(bob, 'SEALED_UAK_SET', { identity: 'bob', uak: u16, mode: 'bogus' });
+        assert.strictEqual(bogus.ok, false);
+        assert.strictEqual(bogus.code, 400);
+
+        bob.disconnect();
+    } finally {
+        await srv.close();
+        env.restore();
+    }
+});
+
 run(); // executes the registered tests (repo runner); keep LAST
