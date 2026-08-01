@@ -1,6 +1,6 @@
 {
   "name": "tyo-mq",
-  "version": "0.17.0",
+  "version": "1.0.0",
   "description": "Distributed Message Pub/Sub Service with socket.io",
   "main": "index.js",
   "scripts": {
@@ -23,20 +23,18 @@
     "auth:request": "node scripts/auth-request.js",
     "auth:manager": "node scripts/auth-manager.js",
     "manager": "node scripts/manager.js",
-    "manager:web": "node scripts/serve-manager-ui.js",
-    "browserify": "browserify web/web.js -o web/client/tyo-mq-client.js"
+    "manager:web": "node scripts/serve-manager-ui.js"
   },
   "author": "TYO Lab",
   "license": "AGPL-3.0-or-later",
   "dependencies": {
     "@signalapp/libsignal-client": "^0.99.2",
     "bufferutil": "^4.0.7",
-    "http": "0.0.0",
-    "http-proxy": "^1.18.0",
     "node-programmer": "^0.0.29",
     "redis": "^6.0.0",
     "socket.io": "^4.5.2",
     "socket.io-client": "^4.5.2",
+    "tyo-mq-protocol": "file:../tyo-mq-protocol",
     "utf-8-validate": "^5.0.10"
   },
   "repository": {
@@ -65,7 +63,7 @@
     "socket.io"
   ],
   "devDependencies": {
-    "browserify": "^17.0.1"
+    "tyo-mq-client": "file:../tyo-mq-client"
   },
   "overrides": {
     "ws": "^8.21.0"

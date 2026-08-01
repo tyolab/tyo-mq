@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { test, run } = require('./runner');
-const e2ee = require('../lib/e2ee');
+const e2ee = require('tyo-mq-client/lib/e2ee');
 
 const subtle = globalThis.crypto.subtle;
 const VECTORS = path.join(__dirname, 'e2ee-vectors.json');

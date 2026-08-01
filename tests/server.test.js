@@ -11,7 +11,7 @@ const assert  = require('assert');
 const { test, run } = require('./runner');
 
 const TyoMQServer = require('../lib/server');
-const Factory     = require('../lib/factory');
+const Factory     = require('tyo-mq-client').Factory;
 
 const TEST_PORT = 17353;
 
