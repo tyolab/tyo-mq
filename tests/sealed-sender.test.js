@@ -380,4 +380,30 @@ test('sealed commands are refused when the realm e2ee policy is off', async () =
     } finally { await srv.close(); env.restore(); }
 });
 
+// ── Client wrappers (lib/subscriber.js) ─────────────────────────────────
+
+test('client wrappers: sealed message flows sender -> broker -> recipient via onSealedMessage', async () => {
+    const env = installSealedEnv();
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        const bob = await new Factory(clientOpts(srv.port)).createConsumer('bob');
+        const got = [];
+        bob.onSealedMessage = function (blob, msgId) { got.push({ blob: blob, msgId: msgId }); };
+        await delay(150);
+        const uak = Buffer.alloc(16, 3).toString('base64');
+        const setRes = await bob.setUak('bob', uak, 'require-uak');
+        assert.strictEqual(setRes.ok, true);
+
+        const sender = await new Factory(clientOpts(srv.port)).createProducer();   // anon
+        await delay(150);
+        const blob = Buffer.from('hello-sealed').toString('base64');
+        const res = await sender.sendSealed('default', 'bob', uak, blob, 'cm1');
+        assert.strictEqual(res.ok, true);
+        await delay(120);
+        assert.strictEqual(got.length, 1);
+        assert.strictEqual(got[0].blob, blob);
+        assert.strictEqual(got[0].msgId, 'cm1');
+    } finally { await srv.close(); env.restore(); }
+});
+
 run(); // executes the registered tests (repo runner); keep LAST
