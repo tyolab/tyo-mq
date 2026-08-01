@@ -8,8 +8,8 @@
 
 const assert = require('assert');
 const ioClient = require('socket.io-client');
-const Factory = require('../lib/factory');
-const events = require('../lib/events');
+const Factory = require('tyo-mq-client').Factory;
+const events = require('tyo-mq-protocol').events;
 const Storage = require('../lib/storage');
 const { test, run } = require('./runner');
 const { startServer, delay, waitFor } = require('./helpers');

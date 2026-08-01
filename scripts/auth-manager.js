@@ -11,7 +11,7 @@
 'use strict';
 
 const env = require('../lib/env');
-const Authorization = require('../lib/authorization');
+const Authorization = require('tyo-mq-client').Authorization;
 
 var action = process.argv[2];
 var requestId = process.argv[3] && process.argv[3][0] !== '-' ? process.argv[3] : null;

@@ -217,8 +217,8 @@ test('dlq endpoint lists dead-lettered messages for a realm', async () => {
 });
 
 test('stats management command returns realm state over the signed channel', async () => {
-    const Authorization = require('../lib/authorization');
-    const Factory = require('../lib/factory');
+    const Authorization = require('tyo-mq-client').Authorization;
+    const Factory = require('tyo-mq-client').Factory;
     const adminToken = 'p5-stats-admin';
     const server = await startServer({
         auth: {
@@ -259,7 +259,7 @@ test('stats management command returns realm state over the signed channel', asy
 });
 
 test('dlq management commands list, replay, and discard messages', async () => {
-    const Authorization = require('../lib/authorization');
+    const Authorization = require('tyo-mq-client').Authorization;
     const adminToken = 'p5-dlq-admin';
     const server = await startServer({
         storage: 'memory',

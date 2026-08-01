@@ -13,8 +13,8 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
-const Authorization = require('../lib/authorization');
-const Factory = require('../lib/factory');
+const Authorization = require('tyo-mq-client').Authorization;
+const Factory = require('tyo-mq-client').Factory;
 const { test, run } = require('./runner');
 const { startServer, delay, waitFor } = require('./helpers');
 

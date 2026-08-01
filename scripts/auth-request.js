@@ -6,7 +6,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const Authorization = require('../lib/authorization');
+const Authorization = require('tyo-mq-client').Authorization;
 
 var host = process.env.TYO_MQ_HOST || 'localhost';
 var port = parseInt(process.env.TYO_MQ_PORT, 10) || 17352;

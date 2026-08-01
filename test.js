@@ -1,6 +1,6 @@
 var childProcess = require('child_process');
 
-var Factory = require('./lib/factory');
+var Factory = require('tyo-mq-client').Factory;
 var mq = new Factory();
 
 var forkServer = false;

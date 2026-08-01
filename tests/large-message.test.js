@@ -20,8 +20,8 @@ const assert  = require('assert');
 const { test, run } = require('./runner');
 
 const TyoMQServer = require('../lib/server');
-const Factory     = require('../lib/factory');
-const Publisher   = require('../lib/publisher');
+const Factory     = require('tyo-mq-client').Factory;
+const Publisher   = require('tyo-mq-client').Publisher;
 
 const TEST_PORT = 17354; // separate port so it doesn't clash with other test suites
 
