@@ -362,4 +362,22 @@ test('SEALED_DELIVER offline enqueue is bounded by max_queued_per_realm (507 whe
     } finally { await srv.close(); env.restore(); }
 });
 
+test('sealed commands are refused when the realm e2ee policy is off', async () => {
+    const env = installSealedEnv();
+    // Boot with the default realm e2ee OFF (or omit e2ee, which defaults to 'off').
+    const srv = await startServer({ auth: { realms: { default: { e2ee: 'off' } } } });
+    try {
+        const bob = await new Factory(clientOpts(srv.port)).createConsumer('bob');
+        await delay(150);
+        const cert = await sealedCall(bob, 'SEALED_CERT_REQUEST', { identity: 'bob', identity_key: 'AAAA' });
+        assert.strictEqual(cert.ok, false); assert.strictEqual(cert.code, 403);
+        const uak = await sealedCall(bob, 'SEALED_UAK_SET', { identity: 'bob', uak: Buffer.alloc(16).toString('base64'), mode: 'require-uak' });
+        assert.strictEqual(uak.ok, false); assert.strictEqual(uak.code, 403);
+        const deliver = await sealedCall(bob, 'SEALED_DELIVER', { to: { realm: 'default', identity: 'bob' }, uak: Buffer.alloc(16).toString('base64'), blob: 'AAAA' });
+        assert.strictEqual(deliver.ok, false); assert.strictEqual(deliver.code, 403);
+        const sub = await sealedCall(bob, 'SEALED_SUBSCRIBE', { identity: 'bob' });
+        assert.strictEqual(sub.ok, false); assert.strictEqual(sub.code, 403);
+    } finally { await srv.close(); env.restore(); }
+});
+
 run(); // executes the registered tests (repo runner); keep LAST
