@@ -13,10 +13,17 @@
 //   1. A FULL sealedSenderEncryptMessage -> sealedSenderDecryptMessage
 //      round-trip entirely in Node (proves the Node binding's own encrypt/
 //      decrypt pair, plaintext, sender identity and device id all survive).
+//      This in-memory round-trip — not the fixture file below — is the
+//      automated, CI-enforced proof; the assertions above never read the
+//      fixture back.
 //   2. Writes tests/fixtures/sealed-crosslang.json containing the base64 of
 //      the CA root PUBLIC key and a serialized SenderCertificate, so the
 //      exact bytes a Node broker would hand to a client can be replayed
-//      against the Rust core.
+//      against the Rust core. This file is regenerated with fresh random
+//      keys on every run, is gitignored, and its sender_cert expires 24h
+//      after it's minted — it is a convenience export for a manual,
+//      already-performed Rust cross-language check (see below), not a
+//      tracked artifact and not a test dependency.
 //
 // REAL RUST CROSS-LANGUAGE CONFIRMATION — RESULT: PASS (2026-08-01)
 // ---------------------------------------------------------------
