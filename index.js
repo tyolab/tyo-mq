@@ -1,6 +1,6 @@
 'use strict';
 const clientMoved = (sym) => { throw new Error(
-    "tyo-mq's client moved to its own Apache-2.0 package '" + sym + "' is now in tyo-mq-client.\n" +
+    "The tyo-mq client moved to its own Apache-2.0 package. '" + sym + "' is now in tyo-mq-client.\n" +
     "  Run: npm install tyo-mq-client\n" +
     "  Then: const { " + sym + " } = require('tyo-mq-client')   // same API"); };
 module.exports = {
