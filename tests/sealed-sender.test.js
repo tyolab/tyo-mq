@@ -406,4 +406,49 @@ test('client wrappers: sealed message flows sender -> broker -> recipient via on
     } finally { await srv.close(); env.restore(); }
 });
 
+// ── Client wrapper coverage top-ups (requestSenderCert / sealedSubscribe) ──
+
+test('client wrappers: requestSenderCert and sealedSubscribe resolve through Subscriber.prototype', async () => {
+    const env = installSealedEnv();
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        const bob = await new Factory(clientOpts(srv.port)).createConsumer('bob');
+        await delay(150);
+
+        const pubB64 = Buffer.from(PrivateKey.generate().getPublicKey().serialize()).toString('base64');
+        const certRes = await bob.requestSenderCert('bob', pubB64, 1);
+        assert.strictEqual(certRes.ok, true);
+        assert.ok(typeof certRes.sender_cert === 'string' && certRes.sender_cert.length > 0);
+        const parsed = SenderCertificate.deserialize(Buffer.from(certRes.sender_cert, 'base64'));
+        assert.strictEqual(parsed.senderUuid(), 'bob');
+        assert.strictEqual(parsed.validate(env.rootPub, Date.now()), true);
+
+        // empty queue -> nothing to replay.
+        const subRes = await bob.sealedSubscribe('bob');
+        assert.strictEqual(subRes.ok, true);
+        assert.strictEqual(subRes.replayed, 0);
+        assert.strictEqual(subRes.more, false);
+
+        bob.disconnect();
+    } finally { await srv.close(); env.restore(); }
+});
+
+test('SEALED_CERT_REQUEST returns 400 for a malformed identity_key (caught, not thrown)', async () => {
+    const env = installSealedEnv();
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        const bob = await new Factory(clientOpts(srv.port)).createConsumer('bob');
+        await delay(150);
+
+        const res = await sealedCall(bob, 'SEALED_CERT_REQUEST', {
+            identity: 'bob',
+            identity_key: Buffer.from('not-a-key').toString('base64'),
+        });
+        assert.strictEqual(res.ok, false);
+        assert.strictEqual(res.code, 400);
+
+        bob.disconnect();
+    } finally { await srv.close(); env.restore(); }
+});
+
 run(); // executes the registered tests (repo runner); keep LAST
