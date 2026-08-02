@@ -11,8 +11,8 @@
 const assert = require('assert');
 const { test, run } = require('./runner');
 const { startServer, delay } = require('./helpers');
-const Factory = require('../lib/factory');
-const e2ee = require('../lib/e2ee');
+const Factory = require('tyo-mq-client').Factory;
+const e2ee = require('tyo-mq-client/lib/e2ee');
 
 const dev = e2ee.generateKeyPair(); // the consumer device's encryption keypair
 

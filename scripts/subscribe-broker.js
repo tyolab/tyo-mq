@@ -16,7 +16,7 @@
 
 'use strict';
 
-const Factory = require('../lib/factory');
+const Factory = require('tyo-mq-client').Factory;
 
 // ─── parse args ──────────────────────────────────────────────────────────────
 

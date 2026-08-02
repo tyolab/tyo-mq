@@ -11,8 +11,8 @@
 const assert = require('assert');
 const { test, run } = require('./runner');
 const { startServer, delay } = require('./helpers');
-const Factory = require('../lib/factory');
-const Constants = require('../lib/constants');
+const Factory = require('tyo-mq-client').Factory;
+const Constants = require('tyo-mq-protocol').constants;
 
 function clientOpts(port) {
     return { host: '127.0.0.1', port: port, protocol: 'http' };

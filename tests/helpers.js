@@ -6,7 +6,7 @@
 const http    = require('http');
 const { Server }  = require('socket.io');
 const TyoMQServer = require('../lib/server');
-const Factory     = require('../lib/factory');
+const Factory     = require('tyo-mq-client').Factory;
 
 /**
  * Start a tyo-mq server on a random available port.

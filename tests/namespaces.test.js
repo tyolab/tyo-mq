@@ -12,7 +12,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { test, run } = require('./runner');
-const Authorization = require('../lib/authorization');
+const Authorization = require('tyo-mq-client').Authorization;
 const { startServer, delay } = require('./helpers');
 const ioClient = require('socket.io-client');
 
