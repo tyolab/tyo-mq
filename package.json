@@ -34,7 +34,7 @@
     "redis": "^6.0.0",
     "socket.io": "^4.5.2",
     "socket.io-client": "^4.5.2",
-    "tyo-mq-protocol": "file:../tyo-mq-protocol",
+    "tyo-mq-protocol": "^0.1.0",
     "utf-8-validate": "^5.0.10"
   },
   "repository": {
@@ -63,7 +63,7 @@
     "socket.io"
   ],
   "devDependencies": {
-    "tyo-mq-client": "file:../tyo-mq-client"
+    "tyo-mq-client": "^0.1.0"
   },
   "overrides": {
     "ws": "^8.21.0"
