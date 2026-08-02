@@ -9,17 +9,40 @@ TYO-MQ supports fire-and-forget pub/sub by default, plus opt-in durable delivery
 
 **See it in action:** the [tyo-mq-samples](https://github.com/tyolab/tyo-mq-samples) repo has four runnable mini-apps — a job queue with retry and DLQ, a browser chat, IoT telemetry over wildcard topics, and event-driven microservices — plus a cookbook with one self-contained script per feature. Clone, `npm install`, run.
 
+## The client moved to `tyo-mq-client`
+
+Building an app? Install the client: `npm install tyo-mq-client` — it's
+**Apache-2.0** and has no AGPL dependency. Migration is one line:
+`require('tyo-mq').Factory` → `require('tyo-mq-client').Factory` (same
+API). This package (`tyo-mq`) is the **broker/server**, licensed
+**AGPL-3.0-or-later** (a commercial licence is available for organisations
+that can't use AGPL). **You only deal with AGPL if you self-host or modify
+the broker — app developers use the Apache client and are unaffected.**
+
+This is a cleaner licensing story, not a more complicated one: the part
+you `npm install` into your app is permissively licensed, and only the
+broker you run as infrastructure carries AGPL's copyleft terms — the same
+split as, say, MongoDB's driver vs. server, or Elasticsearch's client vs.
+cluster.
+
 ## Installation
+
     npm install tyo-mq
+
+For the client, see [tyo-mq-client](https://github.com/tyolab/tyo-mq-client) instead:
+
+    npm install tyo-mq-client
 
 ## Client libraries
 
-The Node.js client (and the browser bundle) ship in this package. Clients for
-other languages live in their own repositories:
+The Node.js client (and the browser bundle) live in their own Apache-2.0
+package, [tyo-mq-client](https://github.com/tyolab/tyo-mq-client) — see
+that repo's README for usage. Clients for other languages live in their
+own repositories too:
 
 | Language | Repository | Install |
 |----------|------------|---------|
-| Node.js / browser | this repo | `npm install tyo-mq` |
+| Node.js / browser | [tyo-mq-client](https://github.com/tyolab/tyo-mq-client) | `npm install tyo-mq-client` |
 | Python | [tyo-mq-client-python](https://github.com/tyolab/tyo-mq-client-python) | `pip install tyo-mq-client` |
 | Go | [tyo-mq-client-go](https://github.com/tyolab/tyo-mq-client-go) | `go get github.com/tyolab/tyo-mq-client-go` |
 | Rust | [tyo-mq-client-rust](https://github.com/tyolab/tyo-mq-client-rust) | crate `tyo-mq-client` (git) |
@@ -47,13 +70,17 @@ var mq = new MessageServer();
 mq.start();
 ```
 
-## Creating a message producer
+## Creating a message producer or subscriber
+
+Producer and consumer code lives in `tyo-mq-client` now — install it
+alongside (or instead of, if you're not running your own broker) this
+package:
 
 ```javascript
-var Factory = require('tyo-mq').Factory,
+var Factory = require('tyo-mq-client').Factory,
     producer;
 
-var mq = new Factory();  
+var mq = new Factory();
 
 mq.createProducer('testevent')
 .then(function (p) {
@@ -65,22 +92,17 @@ mq.createProducer('testevent')
     // produce a different kind of event
     producer.produce('event2', {data: 'test text from event2'})
 });
-``` 
-
-## Creating a message subscriber
+```
 
 ```javascript
-var Factory = require('tyo-mq').Factory,
+var Factory = require('tyo-mq-client').Factory,
     consumer;
 
-var mq = new Factory();    
+var mq = new Factory();
 
 mq.createConsumer()
 .then(function (c) {
     consumer = c;
-    consumer.on('connect', function ()  {
-        console.log('consumer\'s own connect listenr');
-    });
 
     // subscribe 'event2'
     consumer.subscribe('event2', (data) => {
@@ -93,6 +115,9 @@ mq.createConsumer()
     });
 });
 ```
+
+See [tyo-mq-client](https://github.com/tyolab/tyo-mq-client#readme) for
+the full client API (durable delivery, ACK, topics, groups, broadcast).
 
 ## Durable Delivery and ACK
 
@@ -328,7 +353,7 @@ The built-in clients can do this automatically with a configured token:
 
 ```javascript
 var Server = require('tyo-mq').Server;
-var Factory = require('tyo-mq').Factory;
+var Factory = require('tyo-mq-client').Factory;
 
 var server = new Server({
     auth: {
@@ -486,7 +511,7 @@ signed management command `revoke_token`. Revocation can identify a token by
 The same flow is available as library calls:
 
 ```javascript
-var Authorization = require('tyo-mq').Authorization;
+var Authorization = require('tyo-mq-client').Authorization;
 
 await Authorization.submitAuthorizationRequest({
     realm: 'tyolab',

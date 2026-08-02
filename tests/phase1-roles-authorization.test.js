@@ -16,8 +16,8 @@
 
 const assert = require('assert');
 const ioClient = require('socket.io-client');
-const Authorization = require('../lib/authorization');
-const Factory = require('../lib/factory');
+const Authorization = require('tyo-mq-client').Authorization;
+const Factory = require('tyo-mq-client').Factory;
 const { test, run } = require('./runner');
 const { startServer, delay, waitFor } = require('./helpers');
 

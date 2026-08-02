@@ -15,8 +15,8 @@
 
 const assert = require('assert');
 const ioClient = require('socket.io-client');
-const adminSignature = require('../lib/admin-signature');
-const Authorization = require('../lib/authorization');
+const adminSignature = require('tyo-mq-protocol').adminSignature;
+const Authorization = require('tyo-mq-client').Authorization;
 const { test, run } = require('./runner');
 const { startServer, delay, waitFor } = require('./helpers');
 
@@ -132,7 +132,7 @@ function clusterNode(hub, prefix) {
 }
 
 function relayFactory(port) {
-    const Factory = require('../lib/factory');
+    const Factory = require('tyo-mq-client').Factory;
     return new Factory({
         host: '127.0.0.1',
         port: port,

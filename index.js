@@ -1,12 +1,13 @@
-const Factory = require('./lib/factory');
-
+'use strict';
+const clientMoved = (sym) => { throw new Error(
+    "The tyo-mq client moved to its own Apache-2.0 package. '" + sym + "' is now in tyo-mq-client.\n" +
+    "  Run: npm install tyo-mq-client\n" +
+    "  Then: const { " + sym + " } = require('tyo-mq-client')   // same API"); };
 module.exports = {
-    Authorization: require('./lib/authorization'),
-    Factory: Factory,
     Server: require('./lib/server'),
     Settings: require('./lib/settings'),
     Storage: require('./lib/storage'),
-
-    // @depreciated
-    MessageQueue: Factory
+    get Factory() { clientMoved('Factory'); },
+    get Authorization() { clientMoved('Authorization'); },
+    get MessageQueue() { clientMoved('Factory'); },
 };

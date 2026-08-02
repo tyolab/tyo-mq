@@ -10,7 +10,7 @@
 const assert = require('assert');
 const { test, run } = require('./runner');
 const { startServer, delay } = require('./helpers');
-const Factory = require('../lib/factory');
+const Factory = require('tyo-mq-client').Factory;
 
 function clientOpts(port, auth) {
     return { host: '127.0.0.1', port: port, protocol: 'http', auth: auth };

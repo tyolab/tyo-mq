@@ -11,7 +11,7 @@
 'use strict';
 
 const io = require('socket.io-client');
-const Factory = require('../lib/factory');
+const Factory = require('tyo-mq-client').Factory;
 const env = require('../lib/env');
 
 var url = process.env.TYO_MQ_URL || 'https://mq.tyo.com.au';
