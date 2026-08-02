@@ -1,6 +1,6 @@
 {
   "name": "tyo-mq",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Distributed Message Pub/Sub Service with socket.io",
   "main": "index.js",
   "scripts": {
@@ -48,7 +48,8 @@
     "README.md",
     "index.js",
     "server.js",
-    "test.js"
+    "test.js",
+    "COMMERCIAL-LICENSE.md"
   ],
   "bugs": {
     "url": "https://github.com/tyolab/tyo-mq/issues"
