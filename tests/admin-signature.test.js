@@ -9,7 +9,7 @@
 
 const assert = require('assert');
 const { test, run } = require('./runner');
-const adminSignature = require('../lib/admin-signature');
+const adminSignature = require('tyo-mq-protocol').adminSignature;
 
 test('a proof verifies against the same action and body', () => {
     const body = { command: 'add_realm', realm: 'org:acme', required: true };

@@ -4,7 +4,7 @@ const { test, run } = require('./runner');
 const { PrivateKey, ServerCertificate, SenderCertificate } = require('@signalapp/libsignal-client');
 const sealed = require('../lib/sealed-sender');
 const { startServer, delay } = require('./helpers');
-const Factory = require('../lib/factory');
+const Factory = require('tyo-mq-client').Factory;
 
 // Build an in-test CA: root -> server cert, and a client identity key.
 function makeCfgAndRoot() {
