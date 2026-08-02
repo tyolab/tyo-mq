@@ -57,6 +57,31 @@ var server = http.createServer(function (req, res) {
     if (pathname === '/')
         pathname = '/manager.html';
 
+    // The browser client bundle now lives in the extracted Apache-2.0
+    // `tyo-mq-client` package (it was removed from this repo). Serve it from the
+    // installed dependency so the manager UI keeps working; the HTML still
+    // references it as `/tyo-mq-client.js`.
+    if (pathname === '/tyo-mq-client.js') {
+        var bundle;
+        try {
+            bundle = require.resolve('tyo-mq-client/web/client/tyo-mq-client.js');
+        }
+        catch (e) {
+            send(res, 404,
+                '// tyo-mq-client is not installed. Run: npm install tyo-mq-client',
+                types['.js']);
+            return;
+        }
+        fs.readFile(bundle, function (err, data) {
+            if (err) {
+                send(res, 500, 'Server error');
+                return;
+            }
+            send(res, 200, data, types['.js']);
+        });
+        return;
+    }
+
     var target = path.resolve(root, '.' + pathname);
     if (target.indexOf(root + path.sep) !== 0 && target !== root) {
         send(res, 403, 'Forbidden');
