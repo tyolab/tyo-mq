@@ -16,8 +16,9 @@ Building an app? Install the client: `npm install tyo-mq-client` — it's
 `require('tyo-mq').Factory` → `require('tyo-mq-client').Factory` (same
 API). This package (`tyo-mq`) is the **broker/server**, licensed
 **AGPL-3.0-or-later** (a commercial licence is available for organisations
-that can't use AGPL). **You only deal with AGPL if you self-host or modify
-the broker — app developers use the Apache client and are unaffected.**
+that can't use AGPL — see [COMMERCIAL-LICENSE.md](./COMMERCIAL-LICENSE.md)).
+**You only deal with AGPL if you self-host or modify the broker — app
+developers use the Apache client and are unaffected.**
 
 This is a cleaner licensing story, not a more complicated one: the part
 you `npm install` into your app is permissively licensed, and only the
