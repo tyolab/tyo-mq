@@ -1,5 +1,6 @@
 'use strict';
 const assert = require('assert');
+const http = require('http');
 const { test, run } = require('./runner');
 const { PrivateKey, ServerCertificate } = require('@signalapp/libsignal-client');
 const push = require('../lib/push');
@@ -30,6 +31,67 @@ function installPushEnv() {
 
 function clientOpts(port, auth) {
     return { host: '127.0.0.1', port: port, protocol: 'http', auth: auth };
+}
+
+// Configure the broker for the UnifiedPush transport. allowLocal enables the
+// dev flag so an http://127.0.0.1 test-sink endpoint is accepted (the
+// http-in-test decision: we use an http loopback sink under the dev flag rather
+// than standing up a self-signed https server).
+function installUnifiedPushEnv(allowLocal) {
+    const prevT = process.env.TYO_MQ_PUSH_TRANSPORT;
+    const prevL = process.env.TYO_MQ_PUSH_ALLOW_LOCAL;
+    process.env.TYO_MQ_PUSH_TRANSPORT = 'unifiedpush';
+    if (allowLocal) process.env.TYO_MQ_PUSH_ALLOW_LOCAL = '1';
+    else delete process.env.TYO_MQ_PUSH_ALLOW_LOCAL;
+    return {
+        restore: () => {
+            if (prevT === undefined) delete process.env.TYO_MQ_PUSH_TRANSPORT; else process.env.TYO_MQ_PUSH_TRANSPORT = prevT;
+            if (prevL === undefined) delete process.env.TYO_MQ_PUSH_ALLOW_LOCAL; else process.env.TYO_MQ_PUSH_ALLOW_LOCAL = prevL;
+        },
+    };
+}
+
+// A local HTTP endpoint that records the wake POSTs it receives. status()
+// controls the response code; hang keeps the request open (timeout test).
+function startPushSink(opts) {
+    opts = Object.assign({ status: 200 }, opts || {});
+    const received = [];
+    const sockets = new Set();
+    const srv = http.createServer((req, res) => {
+        let body = '';
+        req.on('data', (c) => { body += c; });
+        req.on('end', () => {
+            received.push({ method: req.method, url: req.url, headers: req.headers, body });
+            if (opts.hang) return;            // never respond -> client times out
+            res.statusCode = opts.status;
+            res.end('ok');
+        });
+    });
+    srv.on('connection', (s) => { sockets.add(s); s.on('close', () => sockets.delete(s)); });
+    return new Promise((resolve) => {
+        srv.listen(0, '127.0.0.1', () => {
+            const port = srv.address().port;
+            resolve({
+                port,
+                url: (path) => `http://127.0.0.1:${port}${path || '/wake'}`,
+                received,
+                setStatus: (s) => { opts.status = s; },
+                close: () => new Promise((r) => { sockets.forEach((s) => s.destroy()); srv.close(r); }),
+            });
+        });
+    });
+}
+
+// A logger that records every level's calls, for token-free-logging assertions.
+function capturingLogger() {
+    const calls = { warn: [], log: [], error: [], info: [], critical: [], output: [], debug: [], trace: [] };
+    const mk = (lvl) => (...args) => { calls[lvl].push(args.map(String).join(' ')); };
+    return {
+        warn: mk('warn'), log: mk('log'), error: mk('error'), info: mk('info'),
+        critical: mk('critical'), output: mk('output'), debug: mk('debug'), trace: mk('trace'),
+        calls,
+        all: () => Object.keys(calls).reduce((acc, k) => acc.concat(calls[k]), []),
+    };
 }
 
 function sealedRealmOptions(extra) {
@@ -318,6 +380,257 @@ test('feature-off: with push unconfigured, PUSH_REGISTER is 501 and offline deli
         assert.strictEqual(q.ok, true);
         assert.strictEqual(q.delivered, 'queued');
     } finally { await srv.close(); if (prev === undefined) delete process.env.TYO_MQ_PUSH_TRANSPORT; else process.env.TYO_MQ_PUSH_TRANSPORT = prev; env.restore(); }
+});
+
+// ── P4a: SSRF guard unit tests (pure, no server) ────────────────────────────
+
+test('isSafePushUrl: rejects private/loopback/link-local/metadata + credentials + http, accepts public https', async () => {
+    const rej = async (url, opts) => {
+        const r = await push.isSafePushUrl(url, opts || {});
+        assert.strictEqual(r.ok, false, 'should reject ' + url + ' (' + (r.reason || 'ok') + ')');
+    };
+    const acc = async (url, opts) => {
+        const r = await push.isSafePushUrl(url, opts || {});
+        assert.strictEqual(r.ok, true, 'should accept ' + url + ' (reason=' + r.reason + ')');
+    };
+    // metadata / private / loopback / link-local (literal IPs -> no DNS)
+    await rej('http://169.254.169.254/latest/meta-data/');
+    await rej('https://169.254.169.254/x');
+    await rej('https://127.0.0.1/x');
+    await rej('https://10.0.0.5/x');
+    await rej('https://192.168.1.1/x');
+    await rej('https://172.16.5.5/x');
+    await rej('https://[::1]/x');
+    await rej('https://[fc00::1]/x');
+    await rej('https://[fe80::1]/x');
+    await rej('https://0.0.0.0/x');
+    // IPv6->IPv4 translation/embedding forms that smuggle a blocked v4 must be
+    // decoded and rejected (fail-open guard hardening). All embed 169.254.169.254.
+    await rej('https://[64:ff9b::a9fe:a9fe]/x');   // NAT64 well-known prefix (RFC 6052)
+    await rej('https://[2002:a9fe:a9fe::]/x');     // 6to4 (RFC 3056) — inside 2000::/3
+    await rej('https://[::a9fe:a9fe]/x');          // IPv4-compatible (deprecated)
+    await rej('https://[64:ff9b::7f00:1]/x');      // NAT64 embedding 127.0.0.1
+    // fail-CLOSED default: a range we do not explicitly vet is blocked, not ok.
+    await rej('https://[fec0::1]/x');              // deprecated site-local
+    await rej('https://[100::1]/x');               // discard-only 100::/64 (not global-unicast)
+    // scheme + credentials
+    await rej('http://example.com/x');                       // http to public host forbidden
+    await rej('ftp://example.com/x');                        // non-http(s) scheme
+    await rej('https://user:pass@1.1.1.1/x');                // credentials in URL
+    await rej('not a url');
+    await rej('A'.repeat(push.PUSH_MAX_TOKEN_LENGTH + 1));   // over length bound
+    // acceptable public targets (literal public IP -> deterministic, no DNS)
+    await acc('https://1.1.1.1/wake');
+    await acc('https://172.32.0.1/x');                       // just outside 172.16/12
+    await acc('https://[2606:4700:4700::1111]/x');           // genuine global-unicast IPv6
+    await acc('https://[2002:0808:0808::]/x');               // 6to4 wrapping 8.8.8.8 (public v4)
+    // dev flag opts INTO loopback only
+    await acc('http://127.0.0.1:8080/wake', { allowLocal: true });
+    await acc('https://127.0.0.1/x', { allowLocal: true });
+    await rej('http://example.com/x', { allowLocal: true }); // still not a public http target
+});
+
+test('isSafePushUrl: DNS-rebind — a public host resolving to a private address is rejected (send-time re-check)', async () => {
+    const toPrivate = async () => [{ address: '10.1.2.3', family: 4 }];
+    const toPublic = async () => [{ address: '93.184.216.34', family: 4 }];
+    const bad = await push.isSafePushUrl('https://rebind.example/x', { dnsLookup: toPrivate });
+    assert.strictEqual(bad.ok, false);
+    assert.strictEqual(bad.reason, 'blocked-address');
+    const good = await push.isSafePushUrl('https://good.example/x', { dnsLookup: toPublic });
+    assert.strictEqual(good.ok, true);
+    // send-time re-check: transport.send refuses (unsafe) without connecting
+    const t = new push.UnifiedPushTransport({ dnsLookup: toPrivate });
+    const res = await t.send({ token: 'https://rebind.example/x', payload: push.buildWakePayload() });
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.unsafe, true);
+});
+
+// ── P4a: UnifiedPushTransport HTTP behaviour (real local sink) ───────────────
+
+test('UnifiedPushTransport.send: 2xx -> ok, 404/410 -> gone, 500 -> transient (retain), timeout -> not gone', async () => {
+    const t = new push.UnifiedPushTransport({ allowLocal: true, timeoutMs: 300 });
+    const sink = await startPushSink({ status: 200 });
+    try {
+        let r = await t.send({ token: sink.url(), payload: push.buildWakePayload() });
+        assert.deepStrictEqual(r, { ok: true });
+        assert.strictEqual(sink.received.length, 1);
+        assert.strictEqual(sink.received[0].method, 'POST');
+        assert.deepStrictEqual(JSON.parse(sink.received[0].body), { type: 'wake', v: 1 });
+
+        sink.setStatus(410);
+        r = await t.send({ token: sink.url(), payload: push.buildWakePayload() });
+        assert.deepStrictEqual(r, { ok: false, gone: true });
+
+        sink.setStatus(404);
+        r = await t.send({ token: sink.url(), payload: push.buildWakePayload() });
+        assert.deepStrictEqual(r, { ok: false, gone: true });
+
+        sink.setStatus(500);
+        r = await t.send({ token: sink.url(), payload: push.buildWakePayload() });
+        assert.deepStrictEqual(r, { ok: false });     // transient: no gone flag
+    } finally { await sink.close(); }
+
+    // timeout -> {ok:false} (retain), not gone
+    const hung = await startPushSink({ hang: true });
+    try {
+        const r = await t.send({ token: hung.url(), payload: push.buildWakePayload() });
+        assert.strictEqual(r.ok, false);
+        assert.ok(!r.gone, 'a timeout must not prune (transient)');
+    } finally { await hung.close(); }
+});
+
+// ── P4a: end-to-end wake POST through the broker ─────────────────────────────
+
+test('unifiedpush e2e: offline sealed enqueue -> exactly ONE contentless POST to the endpoint', async () => {
+    const env = installSealedEnv();
+    const penv = installUnifiedPushEnv(true);
+    const sink = await startPushSink({ status: 200 });
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        assert.strictEqual(srv.server._push.config.transportName, 'unifiedpush');
+        const uak = Buffer.alloc(16, 11);
+        const bob = await new Factory(clientOpts(srv.port)).createConsumer('bob');
+        await delay(150);
+        await call(bob, 'SEALED_UAK_SET', { identity: 'bob', uak: uak.toString('base64'), mode: 'require-uak' });
+        const reg = await call(bob, 'PUSH_REGISTER', { identity: 'bob', transport: 'unifiedpush', token: sink.url(), app_id: 'chat' });
+        assert.strictEqual(reg.ok, true, 'endpoint should register: ' + JSON.stringify(reg));
+        assert.strictEqual(reg.count, 1);
+        bob.disconnect();
+        await delay(150);
+
+        const anon = await new Factory(clientOpts(srv.port)).createProducer();
+        await delay(150);
+        const q = await call(anon, 'SEALED_DELIVER', { to: { realm: 'default', identity: 'bob' }, uak: uak.toString('base64'), blob: Buffer.from('x').toString('base64'), msg_id: 'u1' });
+        assert.strictEqual(q.delivered, 'queued');
+        await delay(200);
+
+        assert.strictEqual(sink.received.length, 1, 'exactly one wake POST');
+        assert.strictEqual(sink.received[0].method, 'POST');
+        const payload = JSON.parse(sink.received[0].body);
+        assert.deepStrictEqual(payload, { type: 'wake', v: 1 });
+        ['sender', 'from', 'content', 'blob', 'msg_id', 'msgId', 'to', 'identity', 'realm', 'uak'].forEach(
+            (k) => assert.ok(!(k in payload), 'wake leaked ' + k));
+    } finally { await srv.close(); await sink.close(); penv.restore(); env.restore(); }
+});
+
+// ── P4a: SSRF guard enforced at registration ─────────────────────────────────
+
+test('unifiedpush SSRF: PUSH_REGISTER rejects private/loopback/http URLs and stores none; a public https target is accepted', async () => {
+    const env = installSealedEnv();
+    const penv = installUnifiedPushEnv(false);   // allowLocal OFF: loopback must be rejected too
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        const bob = await new Factory(clientOpts(srv.port)).createConsumer('bob');
+        await delay(150);
+        const unsafe = [
+            'http://169.254.169.254/latest/meta-data/',
+            'https://127.0.0.1/hook',
+            'https://10.0.0.5/hook',
+            'https://192.168.1.1/hook',
+            'http://example.com/hook',      // http to public host
+            'https://[::1]/hook',
+            'https://[fc00::1]/hook',
+            'https://[64:ff9b::a9fe:a9fe]/hook',   // NAT64 -> 169.254.169.254
+            'https://[2002:a9fe:a9fe::]/hook',     // 6to4 -> 169.254.169.254
+            'https://[::a9fe:a9fe]/hook',          // IPv4-compatible -> 169.254.169.254
+        ];
+        for (const url of unsafe) {
+            const r = await call(bob, 'PUSH_REGISTER', { identity: 'bob', transport: 'unifiedpush', token: url });
+            assert.strictEqual(r.ok, false, 'should reject ' + url);
+            assert.strictEqual(r.code, 400, 'should be 400 for ' + url);
+        }
+        assert.strictEqual(srv.server._push.registry.count('default', 'bob'), 0, 'no unsafe endpoint stored');
+        // a public https target (literal IP -> no DNS in the test) is accepted
+        const ok = await call(bob, 'PUSH_REGISTER', { identity: 'bob', transport: 'unifiedpush', token: 'https://1.1.1.1/wake' });
+        assert.strictEqual(ok.ok, true, 'public https should register: ' + JSON.stringify(ok));
+        assert.strictEqual(srv.server._push.registry.count('default', 'bob'), 1);
+    } finally { await srv.close(); penv.restore(); env.restore(); }
+});
+
+// ── P4a: gone pruning via a real 410 ─────────────────────────────────────────
+
+test('unifiedpush gone pruning: a 410 from the endpoint prunes it from the registry', async () => {
+    const env = installSealedEnv();
+    const penv = installUnifiedPushEnv(true);
+    const sink = await startPushSink({ status: 410 });
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        const uak = Buffer.alloc(16, 12);
+        const bob = await new Factory(clientOpts(srv.port)).createConsumer('bob');
+        await delay(150);
+        await call(bob, 'SEALED_UAK_SET', { identity: 'bob', uak: uak.toString('base64'), mode: 'require-uak' });
+        await call(bob, 'PUSH_REGISTER', { identity: 'bob', transport: 'unifiedpush', token: sink.url() });
+        assert.strictEqual(srv.server._push.registry.count('default', 'bob'), 1);
+        bob.disconnect();
+        await delay(150);
+
+        const anon = await new Factory(clientOpts(srv.port)).createProducer();
+        await delay(150);
+        await call(anon, 'SEALED_DELIVER', { to: { realm: 'default', identity: 'bob' }, uak: uak.toString('base64'), blob: Buffer.from('z').toString('base64'), msg_id: 'gp1' });
+        await delay(200);
+        assert.strictEqual(srv.server._push.registry.count('default', 'bob'), 0, 'gone endpoint pruned');
+    } finally { await srv.close(); await sink.close(); penv.restore(); env.restore(); }
+});
+
+// ── P4a: transient failure does NOT prune ────────────────────────────────────
+
+test('unifiedpush transient: a 500 from the endpoint retains it in the registry', async () => {
+    const env = installSealedEnv();
+    const penv = installUnifiedPushEnv(true);
+    const sink = await startPushSink({ status: 500 });
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        const uak = Buffer.alloc(16, 13);
+        const bob = await new Factory(clientOpts(srv.port)).createConsumer('bob');
+        await delay(150);
+        await call(bob, 'SEALED_UAK_SET', { identity: 'bob', uak: uak.toString('base64'), mode: 'require-uak' });
+        await call(bob, 'PUSH_REGISTER', { identity: 'bob', transport: 'unifiedpush', token: sink.url() });
+        bob.disconnect();
+        await delay(150);
+
+        const anon = await new Factory(clientOpts(srv.port)).createProducer();
+        await delay(150);
+        await call(anon, 'SEALED_DELIVER', { to: { realm: 'default', identity: 'bob' }, uak: uak.toString('base64'), blob: Buffer.from('z').toString('base64'), msg_id: 'tr1' });
+        await delay(200);
+        assert.strictEqual(sink.received.length, 1, 'the wake was attempted');
+        assert.strictEqual(srv.server._push.registry.count('default', 'bob'), 1, 'transient failure must retain the endpoint');
+    } finally { await srv.close(); await sink.close(); penv.restore(); env.restore(); }
+});
+
+// ── P4a: failure metric is token-free (carry-forward #1) ─────────────────────
+
+test('unifiedpush failure metric: a gone path logs a token-free warning that never contains the endpoint URL', async () => {
+    const env = installSealedEnv();
+    const penv = installUnifiedPushEnv(true);
+    const sink = await startPushSink({ status: 410 });
+    const srv = await startServer(sealedRealmOptions());
+    const cap = capturingLogger();
+    try {
+        const uak = Buffer.alloc(16, 14);
+        const bob = await new Factory(clientOpts(srv.port)).createConsumer('bob');
+        await delay(150);
+        await call(bob, 'SEALED_UAK_SET', { identity: 'bob', uak: uak.toString('base64'), mode: 'require-uak' });
+        await call(bob, 'PUSH_REGISTER', { identity: 'bob', transport: 'unifiedpush', token: sink.url() });
+        bob.disconnect();
+        await delay(150);
+        // swap in a capturing logger for the wake path
+        srv.server.logger = cap;
+
+        const anon = await new Factory(clientOpts(srv.port)).createProducer();
+        await delay(150);
+        await call(anon, 'SEALED_DELIVER', { to: { realm: 'default', identity: 'bob' }, uak: uak.toString('base64'), blob: Buffer.from('z').toString('base64'), msg_id: 'fm1' });
+        await delay(200);
+
+        const warns = cap.calls.warn;
+        assert.ok(warns.some((w) => /push wake failed/.test(w) && /reason=gone/.test(w) && /transport=unifiedpush/.test(w)),
+            'expected a token-free "push wake failed" warn: ' + JSON.stringify(warns));
+        // no captured log at ANY level may contain the endpoint URL or host:port
+        const hostPort = '127.0.0.1:' + sink.port;
+        cap.all().forEach((line) => {
+            assert.ok(line.indexOf(sink.url()) < 0, 'a log line leaked the endpoint URL: ' + line);
+            assert.ok(line.indexOf(hostPort) < 0, 'a log line leaked the endpoint host:port: ' + line);
+        });
+    } finally { await srv.close(); await sink.close(); penv.restore(); env.restore(); }
 });
 
 run();
