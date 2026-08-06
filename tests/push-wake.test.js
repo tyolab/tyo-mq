@@ -122,10 +122,10 @@ test('loadConfig: null when unset, NullTransport when TYO_MQ_PUSH_TRANSPORT=null
     assert.strictEqual(cfg.transportName, 'null');
     assert.ok(cfg.transport instanceof push.NullTransport);
     assert.throws(() => push.loadConfig({ TYO_MQ_PUSH_TRANSPORT: 'bogus' }), /unknown push transport/);
-    // reserved-but-unwired transports throw a clear "not implemented"
-    assert.throws(() => push.loadConfig({ TYO_MQ_PUSH_TRANSPORT: 'apns' }), /not implemented/);
     // fcm is wired (P2) but demands its credentials file up front (see push-fcm.test.js)
     assert.throws(() => push.loadConfig({ TYO_MQ_PUSH_TRANSPORT: 'fcm' }), /TYO_MQ_PUSH_FCM_CREDENTIALS/);
+    // apns is wired (P3) but demands its .p8 + identifiers up front (see push-apns.test.js)
+    assert.throws(() => push.loadConfig({ TYO_MQ_PUSH_TRANSPORT: 'apns' }), /TYO_MQ_PUSH_APNS_KEY/);
 });
 
 test('TokenRegistry dedupes by (transport,token), caps per identity, and prunes', () => {
