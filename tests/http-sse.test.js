@@ -427,4 +427,177 @@ test('a slow SSE consumer that never reads is dropped past its pending bound', a
     }
 });
 
+// ── P4b-3: resume / durable catch-up ─────────────────────────────────────────
+
+// resume delivers the gap: publish 1-3 guaranteed, connect with Last-Event-ID
+// = id-of-1 → receive 2 and 3 (in order), then a live 4.
+test('SSE resume via Last-Event-ID replays the durable gap, then streams live', async () => {
+    const server = await startServer({ auth: AUTH, http_publish: { enabled: true } });
+    let sse;
+    try {
+        const p1 = await publish(server.port, 'acme', 'resume', { n: 1 }, '?guaranteed=1');
+        await publish(server.port, 'acme', 'resume', { n: 2 }, '?guaranteed=1');
+        await publish(server.port, 'acme', 'resume', { n: 3 }, '?guaranteed=1');
+        assert.strictEqual(p1.status, 202, JSON.stringify(p1));
+        const id1 = p1.json.msg_id;
+        assert.ok(id1, 'publish returns the resumable msg_id');
+
+        sse = await openSse(server.port, '/sub/acme/resume',
+            Object.assign({ 'last-event-id': id1 }, bearer('sub-acme')));
+        assert.strictEqual(sse.status, 200, JSON.stringify({ status: sse.status }));
+        await delay(300);
+        assert.deepStrictEqual(sse.messages.map((m) => m.data.data.n), [2, 3],
+            'the gap after id-of-1 is replayed in order: ' + JSON.stringify(sse.messages));
+
+        await publish(server.port, 'acme', 'resume', { n: 4 }, '?guaranteed=1');
+        await delay(300);
+        assert.deepStrictEqual(sse.messages.map((m) => m.data.data.n), [2, 3, 4],
+            'a message published after resume is streamed live after the replay');
+    } finally {
+        if (sse) sse.close();
+        await server.close();
+    }
+});
+
+// ?since=<msg_id> is accepted as an alternative to the Last-Event-ID header.
+test('SSE resume via ?since=<msg_id> replays the durable gap', async () => {
+    const server = await startServer({ auth: AUTH, http_publish: { enabled: true } });
+    let sse;
+    try {
+        const p1 = await publish(server.port, 'acme', 'since', { n: 1 }, '?guaranteed=1');
+        await publish(server.port, 'acme', 'since', { n: 2 }, '?guaranteed=1');
+        await publish(server.port, 'acme', 'since', { n: 3 }, '?guaranteed=1');
+        const id1 = p1.json.msg_id;
+
+        sse = await openSse(server.port, '/sub/acme/since?since=' + encodeURIComponent(id1), bearer('sub-acme'));
+        assert.strictEqual(sse.status, 200);
+        await delay(300);
+        assert.deepStrictEqual(sse.messages.map((m) => m.data.data.n), [2, 3],
+            '?since replays the same gap as Last-Event-ID: ' + JSON.stringify(sse.messages));
+    } finally {
+        if (sse) sse.close();
+        await server.close();
+    }
+});
+
+// no dupe at boundary: a message published concurrently with the replay appears
+// exactly once (either replayed OR live, never both).
+test('SSE resume: a message racing the replay boundary appears exactly once', async () => {
+    const server = await startServer({ auth: AUTH, http_publish: { enabled: true } });
+    let sse;
+    try {
+        const p1 = await publish(server.port, 'acme', 'race', { n: 1 }, '?guaranteed=1');
+        await publish(server.port, 'acme', 'race', { n: 2 }, '?guaranteed=1');
+        const id1 = p1.json.msg_id;
+
+        sse = await openSse(server.port, '/sub/acme/race',
+            Object.assign({ 'last-event-id': id1 }, bearer('sub-acme')));
+        assert.strictEqual(sse.status, 200);
+        // Publish n:3 concurrently with the (async) replay — it may land in the
+        // snapshot, the live buffer, or both; dedup must collapse it to one.
+        await publish(server.port, 'acme', 'race', { n: 3 }, '?guaranteed=1');
+        await delay(500);
+
+        const ns = sse.messages.map((m) => m.data.data.n);
+        assert.deepStrictEqual(ns, [2, 3],
+            'boundary message delivered exactly once, in order: ' + JSON.stringify(sse.messages));
+    } finally {
+        if (sse) sse.close();
+        await server.close();
+    }
+});
+
+// no resume header → live-only (unchanged P4b-2 behaviour): existing history is
+// NOT replayed; only messages published after connect arrive.
+test('SSE without a resume header does not replay history (live-only, P4b-2)', async () => {
+    const server = await startServer({ auth: AUTH, http_publish: { enabled: true } });
+    let sse;
+    try {
+        await publish(server.port, 'acme', 'lo', { n: 1 }, '?guaranteed=1');
+        await publish(server.port, 'acme', 'lo', { n: 2 }, '?guaranteed=1');
+
+        sse = await openSse(server.port, '/sub/acme/lo', bearer('sub-acme'));
+        assert.strictEqual(sse.status, 200);
+        await delay(300);
+        assert.strictEqual(sse.messages.length, 0,
+            'no history replayed without a resume point: ' + JSON.stringify(sse.messages));
+
+        await publish(server.port, 'acme', 'lo', { n: 3 }, '?guaranteed=1');
+        await delay(300);
+        assert.deepStrictEqual(sse.messages.map((m) => m.data.data.n), [3],
+            'only the live message is delivered');
+    } finally {
+        if (sse) sse.close();
+        await server.close();
+    }
+});
+
+// non-destructive: an SSE resume-replay reads only the reserved SSE-history
+// consumer; a real durable consumer's queued rows are untouched (not consumed).
+test('SSE resume-replay is non-destructive: durable consumer rows survive', async () => {
+    const server = await startServer({ auth: AUTH, http_publish: { enabled: true } });
+    let sse;
+    try {
+        // Simulate a real durable consumer's pending queue (its OWN consumer key).
+        await server.server.store.enqueue('acme', 'nd', { id: 'real-1', consumer_id: 'worker', payload: { r: 1 }, producer: 'p' });
+        await server.server.store.enqueue('acme', 'nd', { id: 'real-2', consumer_id: 'worker', payload: { r: 2 }, producer: 'p' });
+
+        // SSE-history rows arrive via guaranteed publishes.
+        const p1 = await publish(server.port, 'acme', 'nd', { n: 1 }, '?guaranteed=1');
+        await publish(server.port, 'acme', 'nd', { n: 2 }, '?guaranteed=1');
+
+        sse = await openSse(server.port, '/sub/acme/nd',
+            Object.assign({ 'last-event-id': p1.json.msg_id }, bearer('sub-acme')));
+        assert.strictEqual(sse.status, 200);
+        await delay(300);
+        assert.deepStrictEqual(sse.messages.map((m) => m.data.data.n), [2],
+            'the SSE gap was replayed: ' + JSON.stringify(sse.messages));
+
+        // The durable consumer's rows are still there (replay did not dequeue/ack).
+        const rows = await server.server.store.dequeue('acme', 'nd', 'worker');
+        assert.strictEqual(rows.length, 2,
+            'durable consumer rows intact after SSE replay: ' + JSON.stringify(rows));
+        assert.deepStrictEqual(rows.map((r) => r.message), [{ r: 1 }, { r: 2 }],
+            'durable consumer payloads untouched');
+    } finally {
+        if (sse) sse.close();
+        await server.close();
+    }
+});
+
+// bounded: a far-behind resume replays at most the cap (1000) and signals
+// truncation, keeping the newest rather than doing unbounded work.
+test('SSE catch-up replay is bounded (far-behind resume is capped + truncation signalled)', async () => {
+    const server = await startServer({ auth: AUTH, http_publish: { enabled: true } });
+    let sse;
+    try {
+        // Seed 1100 SSE-history rows (reserved consumer) to overrun the 1000 cap.
+        for (let i = 0; i < 1100; i++) {
+            await server.server.store.enqueue('acme', 'big', {
+                id: 'h-' + i, consumer_id: '__http_sse__',
+                payload: { event: 'big', data: { i: i }, producer: 'x' }
+            });
+        }
+        // Unknown resume id → replay the whole available window (capped).
+        sse = await openSse(server.port, '/sub/acme/big',
+            Object.assign({ 'last-event-id': 'no-such-id' }, bearer('sub-acme')));
+        assert.strictEqual(sse.status, 200);
+        await delay(1000);
+
+        assert.strictEqual(sse.messages.length, SSE_REPLAY_CAP,
+            'replay capped at ' + SSE_REPLAY_CAP + ': got ' + sse.messages.length);
+        assert.strictEqual(sse.messages[sse.messages.length - 1].data.data.i, 1099,
+            'newest message kept (tail within the cap)');
+        assert.strictEqual(sse.messages[0].data.data.i, 100,
+            'oldest-beyond-cap dropped (kept the newest 1000)');
+        assert.ok(sse.comments.some((c) => /truncat/i.test(c)),
+            'truncation is signalled with a comment: ' + JSON.stringify(sse.comments));
+    } finally {
+        if (sse) sse.close();
+        await server.close();
+    }
+});
+
+const SSE_REPLAY_CAP = 1000;
+
 run();
