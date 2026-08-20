@@ -271,6 +271,38 @@ test('poll honours a priority filter', async () => {
     }
 });
 
+test('CORS: OPTIONS preflight is 204 with permissive headers; publish echoes the origin header', async () => {
+    const server = await startServer({ notify: { enabled: true } });
+    try {
+        const pre = await httpRequest(server.port, 'OPTIONS', '/notify/corstopic', {});
+        assert.strictEqual(pre.status, 204, JSON.stringify(pre));
+
+        const pub = await httpRequest(server.port, 'POST', '/notify/corstopic', { body: 'x' });
+        assert.strictEqual(pub.status, 200, JSON.stringify(pub));
+    } finally {
+        await server.close();
+    }
+});
+
+test('always-on register limit fires, and spoofed left X-Forwarded-For cannot evade it', async () => {
+    // trust_proxy on → requestIp uses the RIGHT-most (trusted) hop. Vary the left
+    // (client-spoofable) hop but keep the right one constant: all requests must
+    // share one bucket and the 31st (register limit = 30/min) must be throttled.
+    const server = await startServer({ notify: { enabled: true }, limits: { trust_proxy: true } });
+    try {
+        let last;
+        for (let i = 0; i < 31; i++) {
+            last = await httpRequest(server.port, 'POST', '/notify/rl/register', {
+                headers: { 'content-type': 'application/json', 'x-forwarded-for': `9.9.9.${i}, 10.20.30.40` },
+                body: { transport: 'null', token: 't' }
+            });
+        }
+        assert.strictEqual(last.status, 429, 'register limit must trigger despite spoofed left XFF: ' + JSON.stringify(last));
+    } finally {
+        await server.close();
+    }
+});
+
 test('GET /notify/{topic}/xml (bad format) is 404', async () => {
     const server = await startServer({ notify: { enabled: true } });
     try {

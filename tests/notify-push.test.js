@@ -146,10 +146,40 @@ test('register with a transport this broker does not run is 503', async () => {
     }
 });
 
-test('register a UnifiedPush endpoint pointing at an internal address is 400 (SSRF)', async () => {
+test('notify registry: global identity cap (LRU) + TTL eviction', async () => {
+    const reg = new push.TokenRegistry({ maxIdentities: 2, ttlMs: 1000 });
+    reg.register('r', 'a', { transport: 'null', token: 't', now: 1 });
+    reg.register('r', 'b', { transport: 'null', token: 't', now: 2 });
+    reg.register('r', 'c', { transport: 'null', token: 't', now: 3 }); // over cap → evict LRU 'a'
+    assert.strictEqual(reg.count('r', 'a'), 0, 'least-recently-used identity evicted');
+    assert.strictEqual(reg.count('r', 'c'), 1);
+    // A much later registration sweeps identities idle past the TTL.
+    reg.register('r', 'd', { transport: 'null', token: 't', now: 5000 });
+    assert.strictEqual(reg.count('r', 'b'), 0, 'TTL-expired identity swept');
+    assert.strictEqual(reg.count('r', 'd'), 1);
+});
+
+test('UnifiedPush registration is refused by default (reflector guard) with 403', async () => {
     const prev = process.env.TYO_MQ_PUSH_TRANSPORT;
     process.env.TYO_MQ_PUSH_TRANSPORT = 'unifiedpush';
-    const srv = await startServer({ notify: { enabled: true } });
+    const srv = await startServer({ notify: { enabled: true } }); // no unifiedpush opt-in
+    try {
+        const r = await httpRequest(srv.port, 'POST', '/notify/dev7/register', {
+            headers: { 'content-type': 'application/json' },
+            body: { transport: 'unifiedpush', endpoint: 'https://example.com/up/abc' }
+        });
+        assert.strictEqual(r.status, 403, JSON.stringify(r));
+    } finally {
+        if (prev === undefined) delete process.env.TYO_MQ_PUSH_TRANSPORT;
+        else process.env.TYO_MQ_PUSH_TRANSPORT = prev;
+        await srv.close();
+    }
+});
+
+test('with UnifiedPush opted in, an internal-address endpoint is 400 (SSRF)', async () => {
+    const prev = process.env.TYO_MQ_PUSH_TRANSPORT;
+    process.env.TYO_MQ_PUSH_TRANSPORT = 'unifiedpush';
+    const srv = await startServer({ notify: { enabled: true, unifiedpush: true } });
     try {
         const bad = await httpRequest(srv.port, 'POST', '/notify/dev6/register', {
             headers: { 'content-type': 'application/json' },
