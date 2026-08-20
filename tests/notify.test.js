@@ -153,12 +153,14 @@ test('POST /notify (JSON body) publishes with the topic from the body', async ()
 });
 
 // ── method + validation guards ────────────────────────────────────────────────
-test('GET /notify/{topic} is 405 in N1 (subscribe arrives in N2)', async () => {
+test('GET /notify/{topic} (no format) defaults to an SSE stream', async () => {
     const server = await startServer({ notify: { enabled: true } });
+    const stream = openStream(server.port, '/notify/bareget');
     try {
-        const res = await httpRequest(server.port, 'GET', '/notify/alerts', {});
-        assert.strictEqual(res.status, 405, JSON.stringify(res));
+        await delay(250);
+        assert.ok(/event: open/.test(stream.text()), 'expected an SSE open frame: ' + stream.text());
     } finally {
+        stream.req.destroy();
         await server.close();
     }
 });
@@ -181,6 +183,99 @@ test('POST /notify with no topic in the JSON body is 400', async () => {
             body: { message: 'no topic here' }
         });
         assert.strictEqual(res.status, 400, JSON.stringify(res));
+    } finally {
+        await server.close();
+    }
+});
+
+// ── N2: subscribe surface ─────────────────────────────────────────────────────
+// A live stream never "ends"; read chunks and destroy when done.
+function openStream(port, path) {
+    const chunks = [];
+    const req = http.request({ host: '127.0.0.1', port, path, method: 'GET' }, (res) => {
+        res.setEncoding('utf8');
+        res.on('data', (c) => chunks.push(c));
+    });
+    req.end();
+    return { req, text: () => chunks.join('') };
+}
+
+test('GET /notify/{topic}/json?poll=1&since=all returns the cached ring, then closes', async () => {
+    const server = await startServer({ notify: { enabled: true } });
+    try {
+        await httpRequest(server.port, 'POST', '/notify/polltopic', { body: 'first' });
+        await httpRequest(server.port, 'POST', '/notify/polltopic', { body: 'second' });
+
+        const res = await httpRequest(server.port, 'GET', '/notify/polltopic/json?poll=1&since=all', {});
+        assert.strictEqual(res.status, 200, JSON.stringify(res));
+        const lines = res.body.trim().split('\n').map((l) => JSON.parse(l));
+        assert.strictEqual(lines[0].event, 'open', 'open frame first');
+        const messages = lines.filter((m) => m.event === 'message');
+        assert.strictEqual(messages.length, 2, res.body);
+        assert.strictEqual(messages[0].message, 'first');
+        assert.strictEqual(messages[1].message, 'second');
+    } finally {
+        await server.close();
+    }
+});
+
+test('GET /notify/{topic}/sse streams a live published message', async () => {
+    const server = await startServer({ notify: { enabled: true } });
+    const stream = openStream(server.port, '/notify/live1/sse');
+    try {
+        await delay(300); // let the stream open + register
+        await httpRequest(server.port, 'POST', '/notify/live1', { headers: { title: 'Hi' }, body: 'live message' });
+        await delay(400);
+        const text = stream.text();
+        assert.ok(/event: open/.test(text), 'open frame missing: ' + text);
+        const m = /event: message\ndata: (.+)/.exec(text);
+        assert.ok(m, 'no message frame: ' + text);
+        const msg = JSON.parse(m[1]);
+        assert.strictEqual(msg.message, 'live message');
+        assert.strictEqual(msg.title, 'Hi');
+    } finally {
+        stream.req.destroy();
+        await server.close();
+    }
+});
+
+test('GET /notify/{topic}/json streams a live message as ND-JSON', async () => {
+    const server = await startServer({ notify: { enabled: true } });
+    const stream = openStream(server.port, '/notify/live2/json');
+    try {
+        await delay(300);
+        await httpRequest(server.port, 'POST', '/notify/live2', { body: 'ndjson hi' });
+        await delay(400);
+        const lines = stream.text().trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+        assert.ok(lines.some((m) => m.event === 'open'), 'open frame');
+        const msg = lines.find((m) => m.event === 'message');
+        assert.ok(msg, 'no message: ' + stream.text());
+        assert.strictEqual(msg.message, 'ndjson hi');
+    } finally {
+        stream.req.destroy();
+        await server.close();
+    }
+});
+
+test('poll honours a priority filter', async () => {
+    const server = await startServer({ notify: { enabled: true } });
+    try {
+        await httpRequest(server.port, 'POST', '/notify/ftopic', { headers: { priority: 'high' }, body: 'urgent' });
+        await httpRequest(server.port, 'POST', '/notify/ftopic', { body: 'normal' });
+        const res = await httpRequest(server.port, 'GET', '/notify/ftopic/json?poll=1&since=all&priority=high', {});
+        const msgs = res.body.trim().split('\n').map((l) => JSON.parse(l)).filter((m) => m.event === 'message');
+        assert.strictEqual(msgs.length, 1, res.body);
+        assert.strictEqual(msgs[0].message, 'urgent');
+    } finally {
+        await server.close();
+    }
+});
+
+test('GET /notify/{topic}/xml (bad format) is 404', async () => {
+    const server = await startServer({ notify: { enabled: true } });
+    try {
+        const res = await httpRequest(server.port, 'GET', '/notify/t/xml', {});
+        assert.strictEqual(res.status, 404, JSON.stringify(res));
     } finally {
         await server.close();
     }
