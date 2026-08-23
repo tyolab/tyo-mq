@@ -193,4 +193,39 @@ test('with UnifiedPush opted in, an internal-address endpoint is 400 (SSRF)', as
     }
 });
 
+test('deliverNotifyPush skips endpoints whose min_priority exceeds the message priority', async () => {
+    const cfg = push.loadConfig({ TYO_MQ_PUSH_TRANSPORT: 'null' });
+    const registry = new push.TokenRegistry({});
+    // Two devices on the same topic: one wants only priority>=4, one takes all.
+    registry.register('notify', 'alerts', { transport: 'null', token: 'high-only', min_priority: 4 });
+    registry.register('notify', 'alerts', { transport: 'null', token: 'take-all', min_priority: 1 });
+
+    // A low-priority message (priority 2) reaches only the take-all device.
+    const low = await push.deliverNotifyPush(cfg, registry, 'notify', 'alerts',
+        { topic: 'alerts', message: 'fyi', priority: 2 }, 'content');
+    assert.strictEqual(low.sent, 1);
+
+    // A high-priority message (priority 5) reaches both.
+    const high = await push.deliverNotifyPush(cfg, registry, 'notify', 'alerts',
+        { topic: 'alerts', message: 'urgent', priority: 5 }, 'content');
+    assert.strictEqual(high.sent, 2);
+
+    // A message with no priority defaults to 3 -> reaches take-all, not high-only.
+    const dflt = await push.deliverNotifyPush(cfg, registry, 'notify', 'alerts',
+        { topic: 'alerts', message: 'noprio' }, 'content');
+    assert.strictEqual(dflt.sent, 1);
+});
+
+test('TokenRegistry.register persists min_priority (create and update)', () => {
+    const registry = new push.TokenRegistry({});
+    const created = registry.register('notify', 'alerts', { transport: 'null', token: 't1', min_priority: 4 });
+    assert.strictEqual(created.min_priority, 4);
+    // A re-register updates it in place.
+    const updated = registry.register('notify', 'alerts', { transport: 'null', token: 't1', min_priority: 2 });
+    assert.strictEqual(updated.min_priority, 2);
+    // Absent min_priority defaults to null (no filtering).
+    const nofilter = registry.register('notify', 'alerts', { transport: 'null', token: 't2' });
+    assert.strictEqual(nofilter.min_priority, null);
+});
+
 run();
