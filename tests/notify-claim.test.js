@@ -350,4 +350,88 @@ test('register/json on an UNCLAIMED topic still needs no signature (unchanged be
     }
 });
 
+test('unregistering push for a claimed topic requires a valid signature bound to the unregister body', async () => {
+    const prevTransport = process.env.TYO_MQ_PUSH_TRANSPORT;
+    process.env.TYO_MQ_PUSH_TRANSPORT = 'null';
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+
+        // No signature at all: rejected.
+        const noSig = await httpRequest(server.port, 'POST', '/notify/contact-tyo/unregister', {
+            body: { transport: 'null', token: 'dev-token' }
+        });
+        assert.strictEqual(noSig.status, 401, JSON.stringify(noSig));
+
+        // Correctly signed for 'unregister': accepted.
+        const now = Date.now();
+        const nonce = crypto.randomBytes(8).toString('hex');
+        const unregBody = { topic: 'contact-tyo', transport: 'null', token: 'dev-token' };
+        const base = notifyAuth.signatureBase('unregister', unregBody, now, nonce);
+        const signature = crypto.sign('sha256', Buffer.from(base), privateKey).toString('base64');
+        const ok = await httpRequest(server.port, 'POST', '/notify/contact-tyo/unregister', {
+            headers: {
+                'x-tyo-notify-timestamp': String(now),
+                'x-tyo-notify-nonce': nonce,
+                'x-tyo-notify-signature': signature
+            },
+            body: { transport: 'null', token: 'dev-token' }
+        });
+        assert.strictEqual(ok.status, 200, JSON.stringify(ok));
+    } finally {
+        await server.close();
+        if (prevTransport === undefined) delete process.env.TYO_MQ_PUSH_TRANSPORT;
+        else process.env.TYO_MQ_PUSH_TRANSPORT = prevTransport;
+    }
+});
+
+test('a signature for one action cannot be reused for a different action (register vs unregister, json vs raw)', async () => {
+    const prevTransport = process.env.TYO_MQ_PUSH_TRANSPORT;
+    process.env.TYO_MQ_PUSH_TRANSPORT = 'null';
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+
+        // A proof signed for 'register' must not verify against '/unregister'.
+        const regNow = Date.now();
+        const regNonce = crypto.randomBytes(8).toString('hex');
+        const regBody = { topic: 'contact-tyo', transport: 'null', token: 'dev-token' };
+        const regBase = notifyAuth.signatureBase('register', regBody, regNow, regNonce);
+        const regSignature = crypto.sign('sha256', Buffer.from(regBase), privateKey).toString('base64');
+        const crossedUnregister = await httpRequest(server.port, 'POST', '/notify/contact-tyo/unregister', {
+            headers: {
+                'x-tyo-notify-timestamp': String(regNow),
+                'x-tyo-notify-nonce': regNonce,
+                'x-tyo-notify-signature': regSignature
+            },
+            body: { transport: 'null', token: 'dev-token' }
+        });
+        assert.strictEqual(crossedUnregister.status, 401, 'a register-signed proof must not verify for unregister');
+
+        // A proof signed for 'json' must not verify against '/raw'.
+        const readNow = Date.now();
+        const readNonce = crypto.randomBytes(8).toString('hex');
+        const readBase = notifyAuth.signatureBase('json', { topic: 'contact-tyo' }, readNow, readNonce);
+        const readSignature = crypto.sign('sha256', Buffer.from(readBase), privateKey).toString('base64');
+        const crossedRaw = await httpRequest(server.port, 'GET', '/notify/contact-tyo/raw?poll=1', {
+            headers: {
+                'x-tyo-notify-timestamp': String(readNow),
+                'x-tyo-notify-nonce': readNonce,
+                'x-tyo-notify-signature': readSignature
+            }
+        });
+        assert.strictEqual(crossedRaw.status, 401, 'a json-signed proof must not verify for raw');
+    } finally {
+        await server.close();
+        if (prevTransport === undefined) delete process.env.TYO_MQ_PUSH_TRANSPORT;
+        else process.env.TYO_MQ_PUSH_TRANSPORT = prevTransport;
+    }
+});
+
 run();
