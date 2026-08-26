@@ -149,4 +149,49 @@ test('claim reports push_registered:true once the transport is actually configur
     }
 });
 
+test('publish to a claimed topic without a token is rejected', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        const claim = await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+        assert.strictEqual(claim.status, 200);
+
+        const pub = await httpRequest(server.port, 'POST', '/notify/contact-tyo', { body: { message: 'hi' } });
+        assert.strictEqual(pub.status, 401, JSON.stringify(pub));
+    } finally {
+        await server.close();
+    }
+});
+
+test('publish to a claimed topic with the correct bearer token succeeds', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        const claim = await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+        const publishToken = claim.json.publish_token;
+
+        const pub = await httpRequest(server.port, 'POST', '/notify/contact-tyo', {
+            headers: { authorization: 'Bearer ' + publishToken },
+            body: { message: 'hi' }
+        });
+        assert.strictEqual(pub.status, 200, JSON.stringify(pub));
+    } finally {
+        await server.close();
+    }
+});
+
+test('publish to an unclaimed topic still needs no auth (unchanged behaviour)', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const pub = await httpRequest(server.port, 'POST', '/notify/never-claimed', { body: { message: 'hi' } });
+        assert.strictEqual(pub.status, 200, JSON.stringify(pub));
+    } finally {
+        await server.close();
+    }
+});
+
 run();
