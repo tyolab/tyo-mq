@@ -505,4 +505,70 @@ test('sse on an UNCLAIMED topic still needs no ticket (unchanged behaviour)', as
     }
 });
 
+function sseConnectStatus(port, path) {
+    const http2 = require('http');
+    return new Promise((resolve) => {
+        const req = http2.request({ host: '127.0.0.1', port, path, method: 'GET', timeout: 1000 }, (res) => {
+            resolve(res.statusCode); res.destroy(); req.destroy();
+        });
+        req.on('timeout', () => { req.destroy(); resolve(null); });
+        req.on('error', () => resolve(null));
+        req.end();
+    });
+}
+
+async function getSseTicket(server, privateKey, topic) {
+    const now = Date.now();
+    const nonce = crypto.randomBytes(8).toString('hex');
+    const base = notifyAuth.signatureBase('sse-ticket', { topic }, now, nonce);
+    const signature = crypto.sign('sha256', Buffer.from(base), privateKey).toString('base64');
+    const res = await httpRequest(server.port, 'POST', `/notify/${topic}/sse-ticket`, {
+        body: { timestamp: now, nonce: nonce, signature: signature }
+    });
+    return res.json.ticket;
+}
+
+test('an SSE ticket is single-use: reusing it a second time is rejected', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+        const ticket = await getSseTicket(server, privateKey, 'contact-tyo');
+
+        const first = await sseConnectStatus(server.port, '/notify/contact-tyo/sse?ticket=' + ticket);
+        assert.strictEqual(first, 200, 'first use must open the stream');
+
+        const second = await sseConnectStatus(server.port, '/notify/contact-tyo/sse?ticket=' + ticket);
+        assert.strictEqual(second, 401, 'reusing an already-consumed ticket must be rejected');
+    } finally {
+        await server.close();
+    }
+});
+
+test('an SSE ticket is topic-scoped: a ticket for one topic is rejected (and burned) against another', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const a = genKeyPair();
+        await httpRequest(server.port, 'POST', '/notify/topic-a/claim', {
+            body: claimBody(a.privateKey, 'topic-a', { pubkey: a.pubkey, transport: 'null', token: 'dev-token-a' })
+        });
+        const b = genKeyPair();
+        await httpRequest(server.port, 'POST', '/notify/topic-b/claim', {
+            body: claimBody(b.privateKey, 'topic-b', { pubkey: b.pubkey, transport: 'null', token: 'dev-token-b' })
+        });
+        const ticketForA = await getSseTicket(server, a.privateKey, 'topic-a');
+
+        const wrongTopic = await sseConnectStatus(server.port, '/notify/topic-b/sse?ticket=' + ticketForA);
+        assert.strictEqual(wrongTopic, 401, 'a ticket for topic-a must not open topic-b');
+
+        // Burned even though it was rejected — cannot then be replayed on its own topic.
+        const correctTopicAfter = await sseConnectStatus(server.port, '/notify/topic-a/sse?ticket=' + ticketForA);
+        assert.strictEqual(correctTopicAfter, 401, 'a ticket burned by a wrong-topic attempt cannot be reused');
+    } finally {
+        await server.close();
+    }
+});
+
 run();
