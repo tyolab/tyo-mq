@@ -225,6 +225,21 @@ as its own small follow-up spec.
 - Any actual admin/system-notification feature using the reserved namespace
   (§8) — namespace only, no feature.
 
+**Known limitation (not a v1 non-goal — a real gap to track before multi-node
+deployment):** the claim store (`lib/notify-store.js`) is a local SQLite file
+per broker node, not cluster-coordinated. `tyo-mq`'s existing multi-node
+support (`lib/cluster.js`) uses a shared Redis for settings sync and a
+`SET NX` pattern for exclusive nonce claims — the private-topics claim store
+uses neither. If TYO Notify is ever run on more than one broker node (the
+production TW deployment already runs two VMs for other realms), two devices
+racing to claim the same topic against two *different* nodes would **both
+win**, each on its own node's local store — silently violating first-claim-wins
+across the cluster. Single-node deployments (where TYO Notify runs today) are
+unaffected. Before enabling private topics on a multi-node deployment, this
+needs either topic-sticky routing at the load balancer or a Redis `SET NX`
+guard before the local write, mirroring `cluster.js`'s existing nonce-claim
+pattern — not designed here.
+
 ## 11. How the contact-form use case wires in
 
 pymailer's `server/api/send.py::send_mail()`, after a successful
