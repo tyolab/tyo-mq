@@ -117,4 +117,36 @@ test('a claim with an invalid signature is rejected', async () => {
     }
 });
 
+test('claim succeeds but push_registered is false when no push transport is configured', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        const res = await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+        assert.strictEqual(res.status, 200, JSON.stringify(res));
+        assert.strictEqual(res.json.push_registered, false, 'topic ownership still succeeds even though push delivery is not wired up');
+    } finally {
+        await server.close();
+    }
+});
+
+test('claim reports push_registered:true once the transport is actually configured', async () => {
+    const prevTransport = process.env.TYO_MQ_PUSH_TRANSPORT;
+    process.env.TYO_MQ_PUSH_TRANSPORT = 'null';
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        const res = await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+        assert.strictEqual(res.status, 200, JSON.stringify(res));
+        assert.strictEqual(res.json.push_registered, true);
+    } finally {
+        await server.close();
+        if (prevTransport === undefined) delete process.env.TYO_MQ_PUSH_TRANSPORT;
+        else process.env.TYO_MQ_PUSH_TRANSPORT = prevTransport;
+    }
+});
+
 run();
