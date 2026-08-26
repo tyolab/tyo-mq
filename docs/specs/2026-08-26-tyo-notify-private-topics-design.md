@@ -141,6 +141,18 @@ stored hash (no timing side channel), same discipline as the broker's existing
 token-validation paths. Publish on an unclaimed topic is unchanged (still
 fully public, matching today).
 
+**Both publish forms are gated.** TYO Notify's base spec has two publish
+forms: path (`POST /notify/{topic}`) and JSON-body (`POST /notify
+{topic, message, ...}`). The path form's topic is known immediately, so it's
+checked before the body is even read (a fast reject). The JSON-body form's
+topic is only known after the body is parsed — it is checked again at that
+point, once resolved. An earlier draft of this feature checked only the path
+form, reasoning that "topic isn't known before parsing" justified skipping
+the check entirely for the JSON-body form; that reasoning doesn't actually
+follow — once the body is parsed and the topic is known, the same check
+applies just as well, only slightly later. Caught in final review before this
+branch was considered done; both forms are gated identically now.
+
 ## 6. Storage
 
 A **new, dedicated store** (`lib/notify-store.js` → `tyo-mq.notify.sqlite`,
