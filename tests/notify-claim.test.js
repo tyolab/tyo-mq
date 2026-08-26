@@ -194,6 +194,34 @@ test('publish to an unclaimed topic still needs no auth (unchanged behaviour)', 
     }
 });
 
+test('publish via the JSON-body form (topic inside the body) to a claimed topic is gated too', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        const claim = await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+        assert.strictEqual(claim.status, 200);
+        const publishToken = claim.json.publish_token;
+
+        // No token: the path form is gated pre-body, but this form's topic is
+        // only known AFTER the body is parsed — must still be rejected.
+        const noToken = await httpRequest(server.port, 'POST', '/notify', {
+            body: { topic: 'contact-tyo', message: 'JSON-BODY BYPASS ATTEMPT' }
+        });
+        assert.strictEqual(noToken.status, 401, JSON.stringify(noToken));
+
+        // With the correct token, it succeeds — same as the path form.
+        const withToken = await httpRequest(server.port, 'POST', '/notify', {
+            headers: { authorization: 'Bearer ' + publishToken },
+            body: { topic: 'contact-tyo', message: 'hi' }
+        });
+        assert.strictEqual(withToken.status, 200, JSON.stringify(withToken));
+    } finally {
+        await server.close();
+    }
+});
+
 test('publish to a claimed topic with a wrong but well-formed token is rejected', async () => {
     const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
     try {
