@@ -434,4 +434,75 @@ test('a signature for one action cannot be reused for a different action (regist
     }
 });
 
+test('opening an SSE stream on a claimed topic without a ticket is rejected', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+        const res = await httpRequest(server.port, 'GET', '/notify/contact-tyo/sse');
+        assert.strictEqual(res.status, 401, JSON.stringify(res));
+    } finally {
+        await server.close();
+    }
+});
+
+test('sse-ticket issues a ticket that opens the SSE stream', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+
+        const now = Date.now();
+        const nonce = crypto.randomBytes(8).toString('hex');
+        const base = notifyAuth.signatureBase('sse-ticket', { topic: 'contact-tyo' }, now, nonce);
+        const signature = crypto.sign('sha256', Buffer.from(base), privateKey).toString('base64');
+        const ticketRes = await httpRequest(server.port, 'POST', '/notify/contact-tyo/sse-ticket', {
+            body: { timestamp: now, nonce: nonce, signature: signature }
+        });
+        assert.strictEqual(ticketRes.status, 200, JSON.stringify(ticketRes));
+        assert.ok(ticketRes.json.ticket);
+
+        // A poll-mode SSE connect (poll isn't implemented for sse in this repo's
+        // handler — use a raw request with a short timeout instead, just to
+        // check the ticket is accepted (non-401) and the stream opens.
+        const http2 = require('http');
+        const opened = await new Promise((resolve) => {
+            const req = http2.request({
+                host: '127.0.0.1', port: server.port,
+                path: '/notify/contact-tyo/sse?ticket=' + ticketRes.json.ticket,
+                method: 'GET', timeout: 1000
+            }, (res) => { resolve(res.statusCode); res.destroy(); req.destroy(); });
+            req.on('timeout', () => { req.destroy(); resolve(null); });
+            req.on('error', () => resolve(null));
+            req.end();
+        });
+        assert.strictEqual(opened, 200, 'ticket must open the SSE stream');
+    } finally {
+        await server.close();
+    }
+});
+
+test('sse on an UNCLAIMED topic still needs no ticket (unchanged behaviour)', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const http2 = require('http');
+        const opened = await new Promise((resolve) => {
+            const req = http2.request({
+                host: '127.0.0.1', port: server.port, path: '/notify/never-claimed/sse',
+                method: 'GET', timeout: 1000
+            }, (res) => { resolve(res.statusCode); res.destroy(); req.destroy(); });
+            req.on('timeout', () => { req.destroy(); resolve(null); });
+            req.on('error', () => resolve(null));
+            req.end();
+        });
+        assert.strictEqual(opened, 200);
+    } finally {
+        await server.close();
+    }
+});
+
 run();
