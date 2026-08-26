@@ -2,3 +2,6 @@
 .env
 tests/fixtures/sealed-crosslang.json
 .worktrees/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
