@@ -53,7 +53,13 @@ entry short-circuits to offline verification instead of the HTTP callback.
   array-contains); `exp` REQUIRED and > now; `nbf` honored; token lifetime
   capped — reject if `exp - (iat || now)` > `JWKS_MAX_TTL_SECONDS` (default
   3600, env-overridable `TYO_MQ_JWKS_MAX_TTL_SECONDS`) so a misconfigured
-  minter can't issue effectively-eternal user tokens.
+  minter can't issue effectively-eternal user tokens. All time claims
+  (`exp`/`iat`/`nbf`) must be FINITE numbers (`{exp: 1e999}` parses to
+  Infinity and would NaN the cap); `iat` must not be in the future beyond
+  skew (a far-future iat would slide the exp−iat window past the cap); and
+  the cap is ALSO enforced against now (`exp - now ≤ maxTtl + skew`) so no
+  iat/exp combination yields a token valid longer than maxTtl from the
+  moment of validation. (Amended per Task A review.)
 - Payload contract: `realm` REQUIRED (scope-checked against the entry's
   `realm_prefix` exactly like live validators), `role` REQUIRED
   (producer|consumer|both), `sub` REQUIRED (audit logging only), `identity`

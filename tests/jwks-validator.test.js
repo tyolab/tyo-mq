@@ -552,3 +552,39 @@ test('static tokens, HS256 realm JWTs, and callback validators coexist with jwks
 });
 
 run();
+
+test('lifetime cap cannot be defeated by far-future or non-finite time claims', async () => {
+    const { privateKey, publicKey } = makeKeyPair();
+    const stub = await startJwksStub([jwkOf(publicKey, 'k1')]);
+    try {
+        const validator = makeValidator(stub.url);
+        const nowSec = Math.floor(Date.now() / 1000);
+
+        // Control: a normal token is accepted.
+        assert.ok(await validator.verify(mint(privateKey, 'k1', claims())));
+
+        // Far-future iat sliding the exp-iat window past the cap: rejected.
+        assert.strictEqual(await validator.verify(mint(privateKey, 'k1', claims({
+            iat: nowSec + 1e9, exp: nowSec + 1e9 + 600
+        }))), null);
+
+        // Non-finite time claims (1e999 JSON-parses to Infinity): rejected,
+        // not NaN-compared into an eternal token.
+        assert.strictEqual(await validator.verify(mint(privateKey, 'k1', claims({
+            iat: Infinity, exp: Infinity
+        }))), null);
+        assert.strictEqual(await validator.verify(mint(privateKey, 'k1', claims({
+            exp: Infinity
+        }))), null);
+        assert.strictEqual(await validator.verify(mint(privateKey, 'k1', claims({
+            nbf: Infinity
+        }))), null);
+
+        // Slightly-future iat within skew still fine (clock drift).
+        assert.ok(await validator.verify(mint(privateKey, 'k1', claims({
+            iat: nowSec + 10, exp: nowSec + 10 + 600
+        }))));
+    } finally {
+        await stub.close();
+    }
+});
