@@ -244,4 +244,110 @@ test('publish to a claimed topic with a malformed Authorization header is reject
     }
 });
 
+function signedGetHeaders(privateKey, action, topic) {
+    const now = Date.now();
+    const nonce = crypto.randomBytes(8).toString('hex');
+    const base = notifyAuth.signatureBase(action, { topic: topic }, now, nonce);
+    const signature = crypto.sign('sha256', Buffer.from(base), privateKey).toString('base64');
+    return {
+        'x-tyo-notify-timestamp': String(now),
+        'x-tyo-notify-nonce': nonce,
+        'x-tyo-notify-signature': signature
+    };
+}
+
+test('reading a claimed topic without a signature is rejected', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+        const res = await httpRequest(server.port, 'GET', '/notify/contact-tyo/json?poll=1');
+        assert.strictEqual(res.status, 401, JSON.stringify(res));
+    } finally {
+        await server.close();
+    }
+});
+
+test('reading a claimed topic with a valid signature succeeds', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+        const res = await httpRequest(server.port, 'GET', '/notify/contact-tyo/json?poll=1', {
+            headers: signedGetHeaders(privateKey, 'json', 'contact-tyo')
+        });
+        assert.strictEqual(res.status, 200, JSON.stringify(res));
+    } finally {
+        await server.close();
+    }
+});
+
+test('replaying the same signature twice is rejected the second time', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+        const headers = signedGetHeaders(privateKey, 'json', 'contact-tyo');
+        const first = await httpRequest(server.port, 'GET', '/notify/contact-tyo/json?poll=1', { headers });
+        assert.strictEqual(first.status, 200);
+        const second = await httpRequest(server.port, 'GET', '/notify/contact-tyo/json?poll=1', { headers });
+        assert.strictEqual(second.status, 401, 'replayed signature must be rejected');
+    } finally {
+        await server.close();
+    }
+});
+
+test('registering push for a claimed topic requires a valid signature bound to the register body', async () => {
+    // Same env-var dance as "claim reports push_registered:true..." above:
+    // handleNotifyRegister 503s ("push transport not available") unless a
+    // push transport is actually configured, independent of the signature
+    // gate under test here — without this, the assertion below would never
+    // be able to observe a 200, gate or no gate.
+    const prevTransport = process.env.TYO_MQ_PUSH_TRANSPORT;
+    process.env.TYO_MQ_PUSH_TRANSPORT = 'null';
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+
+        const now = Date.now();
+        const nonce = crypto.randomBytes(8).toString('hex');
+        const regBody = { topic: 'contact-tyo', transport: 'null', token: 'dev-token-2' };
+        const base = notifyAuth.signatureBase('register', regBody, now, nonce);
+        const signature = crypto.sign('sha256', Buffer.from(base), privateKey).toString('base64');
+
+        const res = await httpRequest(server.port, 'POST', '/notify/contact-tyo/register', {
+            headers: {
+                'x-tyo-notify-timestamp': String(now),
+                'x-tyo-notify-nonce': nonce,
+                'x-tyo-notify-signature': signature
+            },
+            body: { transport: 'null', token: 'dev-token-2' }
+        });
+        assert.strictEqual(res.status, 200, JSON.stringify(res));
+    } finally {
+        await server.close();
+        if (prevTransport === undefined) delete process.env.TYO_MQ_PUSH_TRANSPORT;
+        else process.env.TYO_MQ_PUSH_TRANSPORT = prevTransport;
+    }
+});
+
+test('register/json on an UNCLAIMED topic still needs no signature (unchanged behaviour)', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const res = await httpRequest(server.port, 'GET', '/notify/never-claimed/json?poll=1');
+        assert.strictEqual(res.status, 200, JSON.stringify(res));
+    } finally {
+        await server.close();
+    }
+});
+
 run();
