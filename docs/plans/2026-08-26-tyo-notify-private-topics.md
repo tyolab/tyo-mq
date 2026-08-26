@@ -50,11 +50,19 @@ anchors, not guarantees.
   `isUnsafePubKey` (~line 1422), `sendJson` (~line 1439), `readRawBody`
   (~line 1550), `requestIp` (~line 119) — all existing helpers this plan
   reuses as-is.
-- `tyo-mq-protocol`'s `adminSignature.stableStringify` /
-  `signatureBase(action, body, timestamp, nonce)` (already imported into
+- `tyo-mq-protocol`'s `adminSignature.stableStringify` (already imported into
   `server.js` as `adminSignature`, `/data/tyolab/node/tyo-mq-protocol/admin-signature.js`)
-  is reused for building the string every signature covers — only the final
-  primitive differs (ECDSA-verify vs HMAC).
+  is reused for canonicalizing the body every signature covers. **Note:**
+  `admin-signature.js` has an internal `signatureBase(action, body, timestamp, nonce)`
+  function but does **not** export it (checked: only `createAdminProof`,
+  `signAdminAction`, `stableStringify`, `verifyAdminProof` are in its
+  `module.exports`). Rather than modifying and republishing that shared
+  package (a release action affecting other consumers, e.g. `tyo-mq-client`),
+  Task 1 adds an equivalent `signatureBase` helper **inside `lib/notify-auth.js`**,
+  built from the one primitive that *is* exported (`stableStringify`) — same
+  output, no duplicated canonicalization logic, nothing outside this repo
+  touched. Every later task imports it from `../lib/notify-auth`, not from
+  `tyo-mq-protocol` directly.
 - The existing SSE ticket precedent: `POST /sub-ticket/:realm` →
   `issueSseTicket(realm)` → `sseTickets` Map (~line 3641,
   `SSE_TICKET_TTL_MS = 60000`, ~line 3646) → `consumeSseTicket(ticket)`
@@ -79,7 +87,9 @@ this pubkey", not which topic it was intended for):
   `'sse-ticket'`.
 - A proof is `{timestamp, nonce, signature}` — `timestamp`/`nonce` are
   **client-generated** (no server-issued challenge), freshness window 60s,
-  `signature = base64(ECDSA-P256-sign(sha256, adminSignature.signatureBase(action, body, timestamp, nonce)))`.
+  `signature = base64(ECDSA-P256-sign(sha256, notifyAuth.signatureBase(action, body, timestamp, nonce)))`,
+  where `notifyAuth` is `lib/notify-auth.js` (see the note above — its
+  `signatureBase` is a thin local helper, not `tyo-mq-protocol`'s).
 
 ---
 
@@ -112,8 +122,7 @@ function genKeyPair() {
 }
 
 function signProof(privateKey, action, body, timestamp, nonce) {
-    const adminSignature = require('tyo-mq-protocol').adminSignature;
-    const base = adminSignature.signatureBase(action, body, timestamp, nonce);
+    const base = A.signatureBase(action, body, timestamp, nonce);
     const signature = crypto.sign('sha256', Buffer.from(base), privateKey).toString('base64');
     return { timestamp: timestamp, nonce: nonce, signature: signature };
 }
@@ -227,6 +236,20 @@ function isReservedTopic(topic) {
 // tyo-mq-protocol's admin-signature.js.
 var SIGNATURE_MAX_AGE_MS = 60 * 1000;
 
+// admin-signature.js has this exact function internally but does not export
+// it (module.exports only lists createAdminProof/signAdminAction/
+// stableStringify/verifyAdminProof — checked). Rebuilding it here from the
+// one primitive that IS exported (stableStringify) avoids modifying and
+// republishing that shared package for one missing export.
+function signatureBase(action, body, timestamp, nonce) {
+    return [
+        String(action || ''),
+        String(timestamp || ''),
+        String(nonce || ''),
+        adminSignature.stableStringify(body || {})
+    ].join('\n');
+}
+
 function importPubkey(pubkeyBase64) {
     try {
         var der = Buffer.from(String(pubkeyBase64), 'base64');
@@ -259,7 +282,7 @@ function verifyProof(pubkeyBase64, action, body, proof) {
     if (!key)
         return false;
     try {
-        var base = adminSignature.signatureBase(action, body || {}, timestamp, proof.nonce);
+        var base = signatureBase(action, body || {}, timestamp, proof.nonce);
         var signature = Buffer.from(String(proof.signature), 'base64');
         return crypto.verify('sha256', Buffer.from(base), key, signature);
     }
@@ -311,6 +334,7 @@ function publishTokenMatches(token, hash) {
 
 module.exports = {
     isReservedTopic: isReservedTopic,
+    signatureBase: signatureBase,
     importPubkey: importPubkey,
     pubkeyFingerprint: pubkeyFingerprint,
     verifyProof: verifyProof,
@@ -558,7 +582,7 @@ const os = require('os');
 const path = require('path');
 const { test, run } = require('./runner');
 const { startServer, delay } = require('./helpers');
-const adminSignature = require('tyo-mq-protocol').adminSignature;
+const notifyAuth = require('../lib/notify-auth');
 const http = require('http');
 
 function httpRequest(port, method, pathname, opts) {
@@ -592,7 +616,7 @@ function claimBody(privateKey, topic, extra) {
     const now = Date.now();
     const nonce = crypto.randomBytes(8).toString('hex');
     const body = Object.assign({ topic: topic }, extra);
-    const base = adminSignature.signatureBase('claim', body, now, nonce);
+    const base = notifyAuth.signatureBase('claim', body, now, nonce);
     const signature = crypto.sign('sha256', Buffer.from(base), privateKey).toString('base64');
     return Object.assign({}, body, { timestamp: now, nonce: nonce, signature: signature });
 }
@@ -943,7 +967,7 @@ git commit -m "feat(notify): gate publish on claimed topics with a bearer publis
 function signedGetHeaders(privateKey, action, topic) {
     const now = Date.now();
     const nonce = crypto.randomBytes(8).toString('hex');
-    const base = adminSignature.signatureBase(action, { topic: topic }, now, nonce);
+    const base = notifyAuth.signatureBase(action, { topic: topic }, now, nonce);
     const signature = crypto.sign('sha256', Buffer.from(base), privateKey).toString('base64');
     return {
         'x-tyo-notify-timestamp': String(now),
@@ -1010,7 +1034,7 @@ test('registering push for a claimed topic requires a valid signature bound to t
         const now = Date.now();
         const nonce = crypto.randomBytes(8).toString('hex');
         const regBody = { topic: 'contact-tyo', transport: 'null', token: 'dev-token-2' };
-        const base = adminSignature.signatureBase('register', regBody, now, nonce);
+        const base = notifyAuth.signatureBase('register', regBody, now, nonce);
         const signature = crypto.sign('sha256', Buffer.from(base), privateKey).toString('base64');
 
         const res = await httpRequest(server.port, 'POST', '/notify/contact-tyo/register', {
@@ -1156,7 +1180,7 @@ test('sse-ticket issues a ticket that opens the SSE stream', async () => {
 
         const now = Date.now();
         const nonce = crypto.randomBytes(8).toString('hex');
-        const base = adminSignature.signatureBase('sse-ticket', { topic: 'contact-tyo' }, now, nonce);
+        const base = notifyAuth.signatureBase('sse-ticket', { topic: 'contact-tyo' }, now, nonce);
         const signature = crypto.sign('sha256', Buffer.from(base), privateKey).toString('base64');
         const ticketRes = await httpRequest(server.port, 'POST', '/notify/contact-tyo/sse-ticket', {
             body: { timestamp: now, nonce: nonce, signature: signature }
