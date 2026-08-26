@@ -77,30 +77,43 @@ topic name itself. If someone else claims a name you wanted first, the fix is
 just "pick a different name" — this was never a security property, since the
 whole point of this design is that the name no longer needs to stay secret.
 
-## 4. Subscribe / register — ticket auth
+## 4. Subscribe / register — direct signatures, ticket only for SSE
 
-Reuses the **existing ticket-auth idiom** already built for push-wake's HTTP
-SSE subscribe (`GET /sub/:realm/:event`, P4b-2) rather than inventing a new
-mechanism — a signature proves possession once, a short-lived ticket carries
-that proof for the requests that follow:
+The existing ticket mechanism (`POST /sub-ticket/:realm` →
+`GET /sub/:realm/:event?ticket=...`, P4b-2, `lib/server.js:4584`) exists
+*specifically* because a browser `EventSource` cannot set an `Authorization`
+header — the ticket is a workaround for that one limitation, single-use,
+~60s TTL. TYO Notify's mobile client is a **native app**, which *can* set
+headers on ordinary HTTP requests, so most of this surface doesn't need a
+ticket layer at all — only the one case that structurally can't resign
+per-request (a live SSE stream) does, and there it reuses the precedent
+almost exactly:
 
+**Direct signed requests** (`json`/`raw` poll, `register`, `unregister`):
 ```
-GET  /notify/{topic}/challenge                    → { nonce }
-POST /notify/{topic}/ticket  { nonce, signature }  → { ticket, expires_in: 600 }
+GET  /notify/{topic}/challenge   → { nonce }          // single-use, ~60s TTL
 
-GET  /notify/{topic}/json|sse|raw   ?ticket=...
-POST /notify/{topic}/register       ?ticket=...
-POST /notify/{topic}/unregister     ?ticket=...
+GET  /notify/{topic}/json|raw
+POST /notify/{topic}/register
+POST /notify/{topic}/unregister
+  X-Tyo-Notify-Nonce: <nonce>
+  X-Tyo-Notify-Signature: <ECDSA-P256 signature over the nonce>
+```
+Each call fetches a fresh nonce and signs it; the broker verifies against the
+topic's pinned pubkey and burns the nonce (single-use, prevents replay). No
+ticket, no ticket store, for these — a native client just signs and sends.
+
+**SSE — ticket, mirroring `/sub-ticket` exactly** (can't resign per event):
+```
+POST /notify/{topic}/sse-ticket
+  { nonce, signature }                                // same nonce/signature proof
+  → { ticket, expires_in: 60 }                         // single-use, ~60s — same as P4b-2
+
+GET  /notify/{topic}/sse?ticket=...
 ```
 
-- Ticket TTL: **10 minutes**, reusable for reads within that window (so
-  polling/reconnect doesn't force a re-sign on every request); re-requested
-  via a fresh challenge when it expires.
-- `nonce` is single-use and short-lived (matches the challenge's own TTL,
-  ~60s) to prevent signature replay.
-- Applies uniformly to JSON/raw poll, SSE stream open, and phone push
-  register/unregister — every read-side operation on a claimed topic requires
-  a valid ticket. Unclaimed topics are untouched by any of this.
+Unclaimed topics are untouched by any of this — no challenge, no signature,
+no ticket required, exactly as today.
 
 ## 5. Publish — bearer token
 
@@ -165,9 +178,9 @@ as its own small follow-up spec.
 
 | Adversary | Goal | Defense |
 |---|---|---|
-| Stranger who learns the topic name | Read messages | Must also prove possession of the device's private key via the ticket flow (§4) — the name alone is now worthless |
+| Stranger who learns the topic name | Read messages | Must also prove possession of the device's private key via a signed nonce, or an SSE ticket derived from one (§4) — the name alone is now worthless |
 | Stranger who learns the topic name | Inject fake messages | Must also hold the publish token (§5) — bearer, server-held, never present on the phone |
-| Attacker who intercepts a ticket | Reuse it to read | Ticket is short-lived (~10 min) and scoped to one topic — not a long-lived secret |
+| Attacker who intercepts a nonce or SSE ticket | Reuse it to read | Both are single-use and short-lived (~60s) and scoped to one topic (§4) — not long-lived secrets |
 | Race to claim a name first | Squat someone's intended topic | Not a security hole (§3) — the model never depended on the name being secret; worst case is picking a different name |
 | Lost/reinstalled phone | Recover a claimed topic | **Non-goal for v1** (§10) — no recovery path exists; explicitly accepted, not a silent gap |
 | Anyone | Claim a reserved system-namespace topic | Rejected outright by the claim endpoint (§8), regardless of claim state |
