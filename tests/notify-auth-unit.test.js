@@ -83,6 +83,14 @@ test('NonceSeen accepts a nonce once, rejects replay, allows a different nonce',
     assert.ok(seen.checkAndRecord('topic-b', 'n1', now), 'same nonce, different topic, is fine');
 });
 
+test('NonceSeen re-admits a nonce once its entry expires past the TTL', () => {
+    const seen = new A.NonceSeen({ ttlMs: 1000 });
+    const start = Date.now();
+    assert.ok(seen.checkAndRecord('topic-a', 'n1', start));
+    assert.ok(!seen.checkAndRecord('topic-a', 'n1', start + 500), 'still within the TTL window');
+    assert.ok(seen.checkAndRecord('topic-a', 'n1', start + 1001), 'past the TTL, the nonce is fresh again');
+});
+
 test('generatePublishToken/hashPublishToken/publishTokenMatches round-trip', () => {
     const token = A.generatePublishToken();
     assert.strictEqual(token.length, 64, '256-bit token, hex-encoded');
