@@ -297,7 +297,7 @@ function verifyProof(pubkeyBase64, action, body, proof) {
 function NonceSeen(opts) {
     opts = opts || {};
     this.ttlMs = opts.ttlMs || SIGNATURE_MAX_AGE_MS;
-    this._seen = new Map(); // "topic nonce" -> expiresAt
+    this._seen = new Map(); // "topic nonce" -> expiresAt
 }
 
 NonceSeen.prototype._sweep = function (now) {
@@ -306,10 +306,16 @@ NonceSeen.prototype._sweep = function (now) {
     seen.forEach(function (exp, key) { if (exp < now) seen.delete(key); });
 };
 
+// A single-space delimiter is collision-safe here specifically because every
+// caller has already validated `topic` against Notify.TOPIC_RE
+// (letters/digits/dash/underscore only) before reaching this function —
+// topic can never contain the delimiter, so it's always unambiguously
+// recoverable as the prefix up to the first delimiter, regardless of what
+// the (unrestricted) client-supplied nonce contains.
 NonceSeen.prototype.checkAndRecord = function (topic, nonce, now) {
     now = now || Date.now();
     this._sweep(now);
-    var key = String(topic) + ' ' + String(nonce);
+    var key = String(topic) + ' ' + String(nonce);
     var exp = this._seen.get(key);
     if (exp !== undefined && exp >= now)
         return false; // replay within the window
