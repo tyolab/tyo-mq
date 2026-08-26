@@ -194,4 +194,54 @@ test('publish to an unclaimed topic still needs no auth (unchanged behaviour)', 
     }
 });
 
+test('publish to a claimed topic with a wrong but well-formed token is rejected', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+        // Same shape/length as a real token (64 hex chars), just not the right one.
+        const wrongToken = crypto.randomBytes(32).toString('hex');
+        const pub = await httpRequest(server.port, 'POST', '/notify/contact-tyo', {
+            headers: { authorization: 'Bearer ' + wrongToken },
+            body: { message: 'hi' }
+        });
+        assert.strictEqual(pub.status, 401, JSON.stringify(pub));
+    } finally {
+        await server.close();
+    }
+});
+
+test('publish to a claimed topic with a malformed Authorization header is rejected', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        const claim = await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+        const publishToken = claim.json.publish_token;
+
+        const wrongScheme = await httpRequest(server.port, 'POST', '/notify/contact-tyo', {
+            headers: { authorization: 'Basic ' + publishToken },
+            body: { message: 'hi' }
+        });
+        assert.strictEqual(wrongScheme.status, 401, JSON.stringify(wrongScheme));
+
+        const noToken = await httpRequest(server.port, 'POST', '/notify/contact-tyo', {
+            headers: { authorization: 'Bearer' },
+            body: { message: 'hi' }
+        });
+        assert.strictEqual(noToken.status, 401, JSON.stringify(noToken));
+
+        const empty = await httpRequest(server.port, 'POST', '/notify/contact-tyo', {
+            headers: { authorization: '' },
+            body: { message: 'hi' }
+        });
+        assert.strictEqual(empty.status, 401, JSON.stringify(empty));
+    } finally {
+        await server.close();
+    }
+});
+
 run();
