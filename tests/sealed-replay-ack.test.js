@@ -241,14 +241,16 @@ test('concurrent ack-mode drain for the same identity is rejected with 409', asy
         const bob = await rawConsumer(srv.port, 'bob');
         const got = [];
         let heldAck = null;
+        let ackHeld;
+        const firstAckHeld = new Promise((resolve) => { ackHeld = resolve; });
         bob.on('SEALED_MESSAGE', (p, ack) => {
             got.push(p.msg_id);
-            if (got.length === 1) heldAck = ack;   // hold the first ack -> drain stays in flight
+            if (got.length === 1) { heldAck = ack; ackHeld(); }   // hold the first ack -> drain stays in flight
             else if (typeof ack === 'function') ack({ ok: true });
         });
 
         const firstDone = sealedCall(bob, 'SEALED_SUBSCRIBE', { identity: 'bob', ack: true });
-        await delay(150);   // < ack timeout (500ms); first drain is now waiting on m1's ack
+        await firstAckHeld;   // deterministic: the first drain is now provably waiting on m1's held ack
 
         const second = await sealedCall(bob, 'SEALED_SUBSCRIBE', { identity: 'bob', ack: true });
         assert.strictEqual(second.ok, false);
@@ -264,6 +266,41 @@ test('concurrent ack-mode drain for the same identity is rejected with 409', asy
         const again = await sealedCall(bob, 'SEALED_SUBSCRIBE', { identity: 'bob', ack: true });
         assert.strictEqual(again.ok, true);
         assert.strictEqual(again.replayed, 0);
+
+        bob.disconnect();
+    } finally { await srv.close(); env.restore(); }
+});
+
+test('connected-but-mute client: every entry times out as pending, more stays true, nothing is lost', async () => {
+    const env = installSealedEnv();
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        await seedInbox(srv, 2);
+
+        const bob = await rawConsumer(srv.port, 'bob');
+        const got = [];
+        bob.on('SEALED_MESSAGE', (p) => { got.push(p.msg_id); /* never answer the ack */ });
+
+        // each entry waits out the 500ms ack timeout sequentially (~1s total)
+        const res = await sealedCall(bob, 'SEALED_SUBSCRIBE', { identity: 'bob', ack: true });
+        assert.deepStrictEqual(res, { ok: true, replayed: 0, dead: 0, pending: 2, more: true });
+        assert.deepStrictEqual(got, ['m1', 'm2']);   // both were emitted, just never acked
+
+        // nothing was deleted or dead-lettered: both entries remain, in order
+        const left = await srv.server.store.dequeue('default', 'sealed:bob', 'bob');
+        assert.deepStrictEqual(left.map(e => e.message.msg_id), ['m1', 'm2']);
+        const dlq = await srv.server.store.listDlq('default');
+        assert.deepStrictEqual(dlq, []);
+
+        // an answering drain then delivers them for real
+        bob.off('SEALED_MESSAGE');
+        const second = [];
+        bob.on('SEALED_MESSAGE', (p, ack) => { second.push(p.msg_id); ack({ ok: true }); });
+        const again = await sealedCall(bob, 'SEALED_SUBSCRIBE', { identity: 'bob', ack: true });
+        assert.strictEqual(again.ok, true);
+        assert.strictEqual(again.replayed, 2);
+        assert.strictEqual(again.more, false);
+        assert.deepStrictEqual(second, ['m1', 'm2']);
 
         bob.disconnect();
     } finally { await srv.close(); env.restore(); }
