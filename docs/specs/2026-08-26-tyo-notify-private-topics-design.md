@@ -57,8 +57,15 @@ not an open risk.
 ```
 POST /notify/{topic}/claim
   { pubkey, push_token, app_id?, signature }
-  // signature = ECDSA-P256(private_key, canonical("{topic}|{pubkey}|{push_token}"))
+  // signature = ECDSA-P256(private_key,
+  //   adminSignature.signatureBase('claim', {topic, pubkey, push_token, app_id}, timestamp, nonce))
 ```
+Reuses `tyo-mq-protocol`'s existing `adminSignature.stableStringify`/
+`signatureBase(action, body, timestamp, nonce)` (already imported into
+`server.js` as `adminSignature`, used today for HMAC-signed admin actions) —
+only the final primitive differs: ECDSA-verify against the claimed pubkey
+instead of HMAC against a shared secret. `timestamp`+`nonce` are
+**client-generated**, not server-issued — see §4 for why that's sufficient.
 
 The broker verifies the topic is unclaimed and the signature is valid, then
 atomically binds `topic → pubkey`. Response:
@@ -77,43 +84,48 @@ topic name itself. If someone else claims a name you wanted first, the fix is
 just "pick a different name" — this was never a security property, since the
 whole point of this design is that the name no longer needs to stay secret.
 
-## 4. Subscribe / register — direct signatures, ticket only for SSE
+## 4. Subscribe / register — self-signed requests, ticket only for SSE
+
+**No server-issued challenge round-trip.** `admin-signature.js` already solves
+"verify a signed action with replay protection" without one: the client
+generates its own `timestamp` + `nonce`, signs `signatureBase(action, body,
+timestamp, nonce)`, and the broker checks (a) the signature against the
+pinned key, (b) `timestamp` is within a small freshness window, and (c) the
+`(topic, nonce)` pair hasn't been seen before within that window (a small,
+TTL-swept in-memory set — bounded the same way the SSE ticket store is
+bounded). That's sufficient replay protection without ever asking the broker
+for a nonce first — one fewer round trip on every call.
 
 The existing ticket mechanism (`POST /sub-ticket/:realm` →
-`GET /sub/:realm/:event?ticket=...`, P4b-2, `lib/server.js:4584`) exists
-*specifically* because a browser `EventSource` cannot set an `Authorization`
-header — the ticket is a workaround for that one limitation, single-use,
-~60s TTL. TYO Notify's mobile client is a **native app**, which *can* set
-headers on ordinary HTTP requests, so most of this surface doesn't need a
-ticket layer at all — only the one case that structurally can't resign
-per-request (a live SSE stream) does, and there it reuses the precedent
-almost exactly:
+`GET /sub/:realm/:event?ticket=...`, P4b-2, `lib/server.js:4584`) still
+matters for exactly one case: it exists because a browser `EventSource`
+cannot set an `Authorization` header, and a live SSE stream can't be resigned
+per-event either way. TYO Notify's mobile client *can* set headers on
+ordinary requests, so only SSE needs the ticket indirection:
 
-**Direct signed requests** (`json`/`raw` poll, `register`, `unregister`):
+**Self-signed requests** (`json`/`raw` poll, `register`, `unregister`):
 ```
-GET  /notify/{topic}/challenge   → { nonce }          // single-use, ~60s TTL
-
 GET  /notify/{topic}/json|raw
 POST /notify/{topic}/register
 POST /notify/{topic}/unregister
-  X-Tyo-Notify-Nonce: <nonce>
-  X-Tyo-Notify-Signature: <ECDSA-P256 signature over the nonce>
+  X-Tyo-Notify-Timestamp: <ms>
+  X-Tyo-Notify-Nonce: <client-generated random>
+  X-Tyo-Notify-Signature: <ECDSA-P256 over signatureBase(action, body-or-query, timestamp, nonce)>
 ```
-Each call fetches a fresh nonce and signs it; the broker verifies against the
-topic's pinned pubkey and burns the nonce (single-use, prevents replay). No
-ticket, no ticket store, for these — a native client just signs and sends.
+Freshness window ~60s. No ticket, no extra round trip — a native client signs
+locally and sends.
 
 **SSE — ticket, mirroring `/sub-ticket` exactly** (can't resign per event):
 ```
 POST /notify/{topic}/sse-ticket
-  { nonce, signature }                                // same nonce/signature proof
+  { timestamp, nonce, signature }                     // same self-signed proof, action='sse-ticket'
   → { ticket, expires_in: 60 }                         // single-use, ~60s — same as P4b-2
 
 GET  /notify/{topic}/sse?ticket=...
 ```
 
-Unclaimed topics are untouched by any of this — no challenge, no signature,
-no ticket required, exactly as today.
+Unclaimed topics are untouched by any of this — no signature, no ticket
+required, exactly as today.
 
 ## 5. Publish — bearer token
 
@@ -129,13 +141,28 @@ fully public, matching today).
 
 ## 6. Storage
 
-New table in the **existing auth-store SQLite** (same write-through pattern
-already used for `realms`/`tokens`/`management_tokens`):
+A **new, dedicated store** (`lib/notify-store.js` → `tyo-mq.notify.sqlite`,
+same `DatabaseSync` + WAL pattern as `lib/auth-store.js`), not a bolt-on to
+the existing auth-store. `auth-store.js` is built specifically around
+diffing an in-memory `settings.auth` object (`sync(auth)` — realms/tokens are
+admin-configured settings); claims aren't admin config, they're
+server-generated records created by a single atomic claim event, so they
+don't fit that diff-sync shape. A small dedicated table is the honest fit:
 
 ```
-notify_claims (topic, pubkey, pubkey_fingerprint, publish_token_hash,
-                push_token, created_at)
+notify_claims (topic PRIMARY KEY, pubkey, pubkey_fingerprint,
+                publish_token_hash, created_at)
 ```
+
+Note **no `push_token` column** — the device's current FCM/APNs token for
+delivery stays exactly where it already lives, the in-memory
+`Push.TokenRegistry` (`lib/push.js:1323`), unaffected by this design. That
+registry is deliberately non-durable (per the base spec: "no durable account
+data" on the public surface) and cheap to repopulate — the app just calls
+`register` again next time it opens, now under the same
+self-signed-request auth as any other read-side call (§4). Only topic
+*ownership* (the pubkey binding + publish token) needs to survive a broker
+restart; *where to currently deliver* does not.
 
 This makes claims **durable across broker restarts**, unlike the message ring
 itself (still memory-only, 12h TTL — unchanged, see base spec). A restart does
