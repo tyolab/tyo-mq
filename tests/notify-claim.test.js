@@ -571,4 +571,49 @@ test('an SSE ticket is topic-scoped: a ticket for one topic is rejected (and bur
     }
 });
 
+test('end-to-end: claim, gated register, gated read, bearer publish, unauthorized attempts all rejected', async () => {
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmpNotifyStoreFile() } });
+    try {
+        const { pubkey, privateKey } = genKeyPair();
+        const owner = genKeyPair(); // a second, non-owning key for negative checks
+
+        // 1. Claim.
+        const claim = await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+        assert.strictEqual(claim.status, 200);
+        const publishToken = claim.json.publish_token;
+
+        // 2. A stranger's key cannot read.
+        const strangerRead = await httpRequest(server.port, 'GET', '/notify/contact-tyo/json?poll=1', {
+            headers: signedGetHeaders(owner.privateKey, 'json', 'contact-tyo')
+        });
+        assert.strictEqual(strangerRead.status, 401);
+
+        // 3. The owner can read.
+        const ownerRead = await httpRequest(server.port, 'GET', '/notify/contact-tyo/json?poll=1', {
+            headers: signedGetHeaders(privateKey, 'json', 'contact-tyo')
+        });
+        assert.strictEqual(ownerRead.status, 200);
+
+        // 4. Publish without the token fails; with it, succeeds.
+        const badPub = await httpRequest(server.port, 'POST', '/notify/contact-tyo', { body: { message: 'hi' } });
+        assert.strictEqual(badPub.status, 401);
+        const goodPub = await httpRequest(server.port, 'POST', '/notify/contact-tyo', {
+            headers: { authorization: 'Bearer ' + publishToken },
+            body: { message: 'A visitor submitted your contact form' }
+        });
+        assert.strictEqual(goodPub.status, 200);
+
+        // 5. A second claim attempt by anyone (including the true owner) fails —
+        // claiming is one-shot; rotation means picking a new topic name.
+        const reclaim = await httpRequest(server.port, 'POST', '/notify/contact-tyo/claim', {
+            body: claimBody(privateKey, 'contact-tyo', { pubkey, transport: 'null', token: 'dev-token' })
+        });
+        assert.strictEqual(reclaim.status, 409);
+    } finally {
+        await server.close();
+    }
+});
+
 run();

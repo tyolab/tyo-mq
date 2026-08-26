@@ -1,7 +1,9 @@
 # TYO Notify — private topics (cert-bound subscribe + token-gated publish) — design
 
 - **Date:** 2026-08-26
-- **Status:** Design for review (not yet built)
+- **Status:** Implemented (broker side). Android app + pymailer contact-form
+  hook are follow-up work in their own repos — see
+  `docs/plans/2026-08-26-tyo-notify-private-topics.md`.
 - **Builds on:** `docs/specs/2026-08-20-tyo-notify-service-design.md` (TYO
   Notify core: public, no-auth publish/subscribe on the isolated `notify`
   realm). This doc resolves that spec's deferred **Open decision #5 — "Topic
