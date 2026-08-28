@@ -313,4 +313,41 @@ test('GET /notify/{topic}/xml (bad format) is 404', async () => {
     }
 });
 
+// ── actions (ntfy subset) on the JSON publish form ────────────────────────────
+test('JSON publish with valid actions delivers them to a poller', async () => {
+    const server = await startServer({ notify: { enabled: true } });
+    try {
+        const pub = await httpRequest(server.port, 'POST', '/notify', {
+            headers: { 'content-type': 'application/json' },
+            body: {
+                topic: 'act1', message: 'approve?',
+                actions: [{ action: 'http', label: 'Approve', url: 'https://e.x/notify/r', method: 'POST', body: 'ok' }]
+            }
+        });
+        assert.strictEqual(pub.status, 200, JSON.stringify(pub));
+        assert.strictEqual(pub.json.actions.length, 1);
+
+        const poll = await httpRequest(server.port, 'GET', '/notify/act1/json?poll=1&since=all');
+        assert.ok(poll.body.includes('"actions"'), 'ring carries actions: ' + poll.body);
+        assert.ok(poll.body.includes('"Approve"'));
+    } finally { await server.close(); }
+});
+
+test('JSON publish with invalid actions is 400, not silently stripped', async () => {
+    const server = await startServer({ notify: { enabled: true } });
+    try {
+        const bad = await httpRequest(server.port, 'POST', '/notify', {
+            headers: { 'content-type': 'application/json' },
+            body: {
+                topic: 'act2', message: 'x',
+                actions: [{ action: 'http', label: 'A', url: 'http://insecure/x' }]
+            }
+        });
+        assert.strictEqual(bad.status, 400, JSON.stringify(bad));
+        // Nothing landed on the topic.
+        const poll = await httpRequest(server.port, 'GET', '/notify/act2/json?poll=1&since=all');
+        assert.ok(!poll.body.includes('"actions"'), poll.body);
+    } finally { await server.close(); }
+});
+
 run();
