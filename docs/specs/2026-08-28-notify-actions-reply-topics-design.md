@@ -79,9 +79,13 @@ buttons are broken at publish time, not from silence.
 - **Push delivery:** `wake` mode needs nothing (the app fetches the full
   message — actions included; wake is the RECOMMENDED mode for actionable
   messages). `content` mode: actions ride the FCM data payload when the
-  total stays under the 4KB cap; when they don't fit, the broker
-  **automatically downgrades that one push to wake** so button fidelity is
-  never silently lost.
+  total stays under the 4KB cap (measured in BYTES — FCM's limit is bytes,
+  and multibyte content can be ~2x its char count); when they don't fit, the
+  broker **automatically downgrades that one push to wake** so button
+  fidelity is never silently lost. Publisher note: a downgraded wake tells
+  the app to fetch from the ring, so do NOT combine actionable content-mode
+  messages with `Cache: no` (which skips the ring) — that combination can
+  yield a wake with nothing to fetch.
 
 ## 3. App changes (tyonotify Android)
 

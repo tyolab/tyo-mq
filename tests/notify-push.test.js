@@ -291,4 +291,31 @@ test('content push downgrades to wake when actions would overflow the payload', 
     }
 });
 
+test('downgrade measures BYTES, not chars: multibyte content near the caps still downgrades', async () => {
+    const srv = await startWithNullPush();
+    try {
+        assert.strictEqual((await registerDevice(srv, 'act-cjk')).status, 200);
+        // 1024 CJK chars ≈ 3KB UTF-8 but only 1024 UTF-16 units; plus a
+        // ~430B action the payload is ~1.6K CHARS (far under 3500) yet
+        // ~3.7K BYTES (over 3500). A char-based check let this through to a
+        // guaranteed FCM rejection (limit is bytes) — no retry, no push.
+        const pub = await httpRequest(srv.port, 'POST', '/notify', {
+            headers: { 'content-type': 'application/json' },
+            body: {
+                topic: 'act-cjk', message: '安'.repeat(1024), push: 'content',
+                actions: [{ action: 'http', label: 'Approve', url: 'https://e.x/notify/replies', method: 'POST', body: 'x'.repeat(400) }]
+            }
+        });
+        assert.strictEqual(pub.status, 200, JSON.stringify(pub));
+        await delay(200);
+        assert.strictEqual(srv.nt.sent.length, 1, JSON.stringify(srv.nt.sent));
+        const p = srv.nt.sent[0].payload;
+        assert.strictEqual(p.wake, '1', 'byte-oversized multibyte payload must downgrade to wake');
+        assert.ok(Buffer.byteLength(JSON.stringify(p), 'utf8') <= 3500, 'sent payload under the cap in BYTES');
+    } finally {
+        srv._restore();
+        await srv.close();
+    }
+});
+
 run();
