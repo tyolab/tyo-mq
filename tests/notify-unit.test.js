@@ -108,4 +108,51 @@ test('ring evicts least-recently-used topics past maxTopics', async () => {
     assert.deepStrictEqual(ring.since('c', 'all', 3).map((m) => m.id), ['z']);
 });
 
+// ── actions (ntfy subset) ─────────────────────────────────────────────────────
+function httpAction (over) {
+    return Object.assign({
+        action: 'http', label: 'Approve',
+        url: 'https://example.com/notify/replies',
+        method: 'POST', body: 'approve',
+        headers: { Authorization: 'Bearer tok' }
+    }, over || {});
+}
+
+test('validateActions accepts a valid http+view set and normalizes it', async () => {
+    const r = N.validateActions([httpAction(), { action: 'view', label: 'Details', url: 'https://x.example/d' }]);
+    assert.strictEqual(r.error, undefined);
+    assert.strictEqual(r.actions.length, 2);
+    assert.strictEqual(r.actions[0].action, 'http');
+    assert.strictEqual(r.actions[0].method, 'POST');
+    assert.strictEqual(r.actions[1].action, 'view');
+    assert.strictEqual(r.actions[1].method, undefined, 'view carries no method');
+});
+
+test('validateActions rejects: too many, bad type, http url, missing fields, bad method', async () => {
+    assert.ok(N.validateActions(Array.from({length: 7}, () => httpAction())).error, '7 > cap 6');
+    assert.ok(N.validateActions([httpAction({action: 'broadcast'})]).error, 'unknown type');
+    assert.ok(N.validateActions([httpAction({url: 'http://insecure.example/x'})]).error, 'https only');
+    assert.ok(N.validateActions([httpAction({label: ''})]).error, 'label required');
+    assert.ok(N.validateActions([httpAction({url: undefined})]).error, 'url required');
+    assert.ok(N.validateActions([httpAction({method: 'TRACE'})]).error, 'method allow-list');
+    assert.ok(N.validateActions(['junk']).error, 'entries must be objects');
+    assert.ok(N.validateActions('junk').error, 'must be an array');
+});
+
+test('validateActions enforces length caps', async () => {
+    assert.ok(N.validateActions([httpAction({label: 'x'.repeat(65)})]).error);
+    assert.ok(N.validateActions([httpAction({url: 'https://e.x/' + 'a'.repeat(2049)})]).error);
+    assert.ok(N.validateActions([httpAction({body: 'x'.repeat(1025)})]).error);
+    const manyHeaders = {}; for (let i = 0; i < 9; i++) manyHeaders['h' + i] = 'v';
+    assert.ok(N.validateActions([httpAction({headers: manyHeaders})]).error, 'max 8 headers');
+    assert.ok(N.validateActions([httpAction({headers: {A: 'v'.repeat(257)}})]).error, 'header value cap');
+});
+
+test('buildMessage carries validated actions; omits when absent', async () => {
+    const withA = N.buildMessage({ topic: 't', message: 'm', actions: N.validateActions([httpAction()]).actions });
+    assert.strictEqual(withA.actions.length, 1);
+    const without = N.buildMessage({ topic: 't', message: 'm' });
+    assert.strictEqual(without.actions, undefined);
+});
+
 run();
