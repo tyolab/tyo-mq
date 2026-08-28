@@ -135,6 +135,9 @@ test('validateActions rejects: too many, bad type, http url, missing fields, bad
     assert.ok(N.validateActions([httpAction({label: ''})]).error, 'label required');
     assert.ok(N.validateActions([httpAction({url: undefined})]).error, 'url required');
     assert.ok(N.validateActions([httpAction({method: 'TRACE'})]).error, 'method allow-list');
+    assert.ok(N.validateActions([httpAction({method: ['get']})]).error, 'non-string method (JSON array would coerce)');
+    assert.ok(N.validateActions([httpAction({headers: JSON.parse('{"__proto__": "x"}')})]).error, 'unsafe header name fails loud');
+    assert.ok(N.validateActions([httpAction({headers: {constructor: 'x'}})]).error, 'constructor header rejected');
     assert.ok(N.validateActions(['junk']).error, 'entries must be objects');
     assert.ok(N.validateActions('junk').error, 'must be an array');
 });
