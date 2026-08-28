@@ -1,7 +1,11 @@
 # TYO Notify — actionable notifications + reply topics — design
 
 - **Date:** 2026-08-28
-- **Status:** Implemented (broker + CLI). App half: tyonotify repo plan.
+- **Status:** FULLY IMPLEMENTED + live-verified end-to-end 2026-08-28: CLI
+  published an actionable alert to a phone-claimed private topic on freemq;
+  the phone rendered Approve/Reject buttons; the owner's tap published
+  "approve" to the CLI-claimed reply topic; the CLI listener received it.
+  Broker+CLI: tyo-mq master. App: tyonotify feature/notify-actions.
 - **Builds on:** `docs/specs/2026-08-20-tyo-notify-service-design.md` (the base
   Notify surface and its ntfy wire-compat commitment) and
   `docs/specs/2026-08-26-tyo-notify-private-topics-design.md` (claim /
