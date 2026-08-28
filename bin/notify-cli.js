@@ -51,7 +51,7 @@ function fail(code, message) {
 
 // ── argv ────────────────────────────────────────────────────────────────────
 
-var FLAGS_WITH_VALUE = ['dir', 'server', 'token-file', 'token', 'title', 'priority', 'push', 'actions-json', 'since'];
+var FLAGS_WITH_VALUE = ['dir', 'server', 'token-file', 'title', 'priority', 'push', 'actions-json', 'since'];
 var FLAGS_BOOLEAN = ['force', 'json'];
 
 function parseArgs(argv) {
@@ -223,7 +223,9 @@ async function cmdPublish(topic, flags, positional) {
     }
 
     var headers = { 'content-type': 'application/json' };
-    var token = flags.token;
+    // File (or TYO_NOTIFY_TOKEN env) only — never an argv flag, which would
+    // leak the bearer token into `ps` output and shell history.
+    var token = process.env.TYO_NOTIFY_TOKEN;
     if (flags['token-file'] !== undefined) {
         try { token = fs.readFileSync(flags['token-file'], 'utf8').trim(); }
         catch (e) { fail(EXIT_USAGE, 'could not read token file: ' + e.message); }
@@ -265,7 +267,9 @@ async function sseTicket(server, topic, privateKey) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(proof)
     });
-    if (r.status !== 200) fail(EXIT_HTTP, 'sse-ticket failed: ' + brokerMessage(r));
+    // Throws (rather than fail/exit) so listen can fall back to a bare
+    // connect — sse-ticket 404s on unclaimed topics by design.
+    if (r.status !== 200) throw new Error('sse-ticket failed: ' + brokerMessage(r));
     return r.json.ticket;
 }
 
@@ -273,12 +277,17 @@ async function listenOnce(server, topic, privateKey, jsonMode) {
     var url = server + '/notify/' + encodeURIComponent(topic) + '/sse';
     var res;
     try {
-        res = await fetch(url, { headers: { accept: 'text/event-stream' } });
-        if (res.status === 401 && privateKey) {
-            // Claimed topic: retry with a fresh single-use ticket.
-            var ticket = await sseTicket(server, topic, privateKey);
-            res = await fetch(url + '?ticket=' + encodeURIComponent(ticket),
+        if (privateKey) {
+            // A key implies the topic is (probably) claimed — go ticket-first
+            // rather than burning a doomed bare connect on every reconnect.
+            // sse-ticket 404s on an UNCLAIMED topic, so fall back to bare then.
+            var ticket = null;
+            try { ticket = await sseTicket(server, topic, privateKey); }
+            catch (e) { /* unclaimed or transient — try bare below */ }
+            res = await fetch(url + (ticket ? '?ticket=' + encodeURIComponent(ticket) : ''),
                 { headers: { accept: 'text/event-stream' } });
+        } else {
+            res = await fetch(url, { headers: { accept: 'text/event-stream' } });
         }
     } catch (e) {
         return false; // connect failure → caller backs off and retries
