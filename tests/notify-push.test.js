@@ -228,4 +228,67 @@ test('TokenRegistry.register persists min_priority (create and update)', () => {
     assert.strictEqual(nofilter.min_priority, null);
 });
 
+// ── actions in content-mode push (spec 2026-08-28 §2) ──────────────────────
+
+test('content push carries actions JSON when they fit', async () => {
+    const srv = await startWithNullPush();
+    try {
+        assert.strictEqual((await registerDevice(srv, 'act-fit')).status, 200);
+        const pub = await httpRequest(srv.port, 'POST', '/notify', {
+            headers: { 'content-type': 'application/json' },
+            body: {
+                topic: 'act-fit', message: 'approve?', push: 'content',
+                actions: [
+                    { action: 'http', label: 'Approve', url: 'https://e.x/notify/replies', method: 'POST', body: 'approve' },
+                    { action: 'view', label: 'Details', url: 'https://e.x/details' }
+                ]
+            }
+        });
+        assert.strictEqual(pub.status, 200, JSON.stringify(pub));
+        await delay(200);
+        assert.strictEqual(srv.nt.sent.length, 1, JSON.stringify(srv.nt.sent));
+        const p = srv.nt.sent[0].payload;
+        assert.strictEqual(p.message, 'approve?', 'still content mode');
+        assert.strictEqual(typeof p.actions, 'string', 'actions ride as a JSON string (FCM data is string-valued)');
+        const actions = JSON.parse(p.actions);
+        assert.strictEqual(actions.length, 2);
+        assert.strictEqual(actions[0].label, 'Approve');
+        assert.strictEqual(actions[0].method, 'POST');
+        assert.strictEqual(actions[1].action, 'view');
+    } finally {
+        srv._restore();
+        await srv.close();
+    }
+});
+
+test('content push downgrades to wake when actions would overflow the payload', async () => {
+    const srv = await startWithNullPush();
+    try {
+        assert.strictEqual((await registerDevice(srv, 'act-big')).status, 200);
+        // 3 valid actions with ~900B bodies + a ~800B message: fits the 4KB
+        // HTTP publish body, but the built content payload (message + actions
+        // JSON) sails past NOTIFY_PUSH_TOTAL_MAX = 3500.
+        const bigActions = Array.from({ length: 3 }, (_, i) => ({
+            action: 'http', label: 'Choice ' + i, url: 'https://e.x/notify/replies',
+            method: 'POST', body: 'x'.repeat(900)
+        }));
+        const pub = await httpRequest(srv.port, 'POST', '/notify', {
+            headers: { 'content-type': 'application/json' },
+            body: { topic: 'act-big', message: 'm'.repeat(800), push: 'content', actions: bigActions }
+        });
+        assert.strictEqual(pub.status, 200, JSON.stringify(pub));
+        await delay(200);
+        assert.strictEqual(srv.nt.sent.length, 1, JSON.stringify(srv.nt.sent));
+        const p = srv.nt.sent[0].payload;
+        // Fidelity over content: NEVER a content payload with dropped actions.
+        assert.strictEqual(p.wake, '1', 'oversized actions downgrade the push to a wake: ' + JSON.stringify(p).slice(0, 200));
+        assert.ok(!('message' in p), 'wake carries no message');
+        assert.ok(!('actions' in p), 'wake carries no actions (the app fetches the full message)');
+        assert.ok(JSON.stringify(p).length <= 3500, 'sent payload stays under the FCM headroom cap');
+    } finally {
+        srv._restore();
+        await srv.close();
+    }
+});
+
 run();
