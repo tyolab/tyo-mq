@@ -1,7 +1,7 @@
 # TYO Notify — actionable notifications + reply topics — design
 
 - **Date:** 2026-08-28
-- **Status:** Design approved (conversationally, with the owner). Not yet built.
+- **Status:** Implemented (broker + CLI). App half: tyonotify repo plan.
 - **Builds on:** `docs/specs/2026-08-20-tyo-notify-service-design.md` (the base
   Notify surface and its ntfy wire-compat commitment) and
   `docs/specs/2026-08-26-tyo-notify-private-topics-design.md` (claim /
