@@ -90,39 +90,41 @@ test('two consumers with unique names both receive messages', async () => {
  * Duplicate consumer name: second registration must be rejected with an ERROR
  * and the first consumer must keep receiving messages.
  */
-test('duplicate consumer name is rejected and first consumer still works', async () => {
+test('same-name re-registration (default id) displaces the prior socket — reconnect-safe', async () => {
+    // A default client sends consumer_id = name (id === name), so a same-name
+    // re-registration is INDISTINGUISHABLE from a reconnect and must DISPLACE the
+    // prior (possibly half-open) socket, not be rejected. Rejecting a reconnect
+    // wedges the client: the broker's server-initiated socket.disconnect() reads
+    // as "io server disconnect" and socket.io-client then does not auto-reconnect
+    // (the tyostocks field bug). Genuine-duplicate rejection now requires two
+    // DISTINCT explicit instance ids — see tests/sealed-reconnect.test.js.
     const client = mq();
     const SHARED_NAME = 'test-consumer-duplicate';
 
     const producer    = await client.createProducer('test-producer-dup');
-    const consumerOK  = await client.createConsumer(SHARED_NAME);
+    const consumerOld  = await client.createConsumer(SHARED_NAME);
     await delay(300); // let first registration settle
 
-    // Second client with the same name — should be rejected
+    let oldDisconnected = false;
+    consumerOld.socket.on('disconnect', () => { oldDisconnected = true; });
+
+    // Second registration with the same name — displaces the first.
     let errorReceived = null;
-    let duplicateDisconnected = false;
+    const consumerNew = await client.createConsumer(SHARED_NAME);
+    consumerNew.socket.on('ERROR', (msg) => { errorReceived = msg; });
 
-    const consumerDup = await new Promise((resolve) => {
-        client.createConsumer(SHARED_NAME).then(resolve);
-    });
+    await delay(1000); // give the server time to displace + settle
 
-    // Listen for ERROR on the duplicate socket
-    consumerDup.socket.on('ERROR', (msg) => { errorReceived = msg; });
-    consumerDup.socket.on('disconnect', () => { duplicateDisconnected = true; });
+    assert.ok(!errorReceived,
+        `re-registration must NOT be rejected, got: ${JSON.stringify(errorReceived)}`);
+    assert.ok(oldDisconnected, 'the stale prior socket should be displaced (disconnected) by the server');
+    assert.ok(consumerNew.socket && consumerNew.socket.connected,
+        'the re-registered socket must stay connected');
 
-    await delay(1000); // give server time to reject
-
-    assert.ok(errorReceived, 'duplicate should receive an ERROR message');
-    assert.ok(
-        JSON.stringify(errorReceived).toLowerCase().includes('duplicate'),
-        `error should mention "duplicate", got: ${JSON.stringify(errorReceived)}`
-    );
-    assert.ok(duplicateDisconnected, 'duplicate socket should be disconnected by server');
-
-    // Original consumer must still receive messages
+    // The live (re-registered) consumer receives messages.
     const received = await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('first consumer timed out after duplicate rejection')), 4000);
-        consumerOK.subscribe(producer.name, 'test-event-dup', (data) => {
+        const timer = setTimeout(() => reject(new Error('re-registered consumer timed out')), 4000);
+        consumerNew.subscribe(producer.name, 'test-event-dup', (data) => {
             clearTimeout(timer);
             resolve(data);
         });
@@ -130,9 +132,9 @@ test('duplicate consumer name is rejected and first consumer still works', async
     });
 
     assert.strictEqual(received, 'still-alive',
-        'first consumer should still receive messages after duplicate was rejected');
+        're-registered consumer should receive messages after displacing the stale socket');
 
-    consumerOK.disconnect();
+    consumerNew.disconnect();
     producer.disconnect();
 });
 

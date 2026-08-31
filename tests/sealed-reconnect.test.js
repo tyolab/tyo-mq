@@ -115,6 +115,48 @@ test('reconnect (same instance id) displaces the stale socket; sealed delivery r
     } finally { await srv.close(); env.restore(); }
 });
 
+test('reconnect with a DEFAULT id (id === name, e.g. the Node client) displaces the stale socket — not rejected', async () => {
+    // Field bug (tyostocks): a Node client whose event loop stalled misses
+    // heartbeats; its socket.io layer reconnects on a new socket BEFORE the
+    // broker reaps the old half-open one. The default Node client sends
+    // consumer_id = name (id === name), so the old "reconnect needs id !== name"
+    // rule treated every such reconnect as a duplicate and rejected it. A
+    // server-initiated disconnect stops socket.io-client auto-reconnect, wedging
+    // the client until a broker restart. The guard must DISPLACE instead.
+    const env = installSealedEnv();
+    const srv = await startServer(sealedRealmOptions());
+    try {
+        // Both connections present id === name, exactly like the default Node client.
+        const a = await rawConsumer(srv.port, 'dave', 'dave');
+        const set = await sealedCall(a.socket, 'SEALED_UAK_SET', { identity: 'dave', mode: 'unrestricted' });
+        assert.strictEqual(set.ok, true);
+
+        const b = await rawConsumer(srv.port, 'dave', 'dave');
+        await delay(150);
+
+        assert.strictEqual(a.socket.connected, false, 'stale socket must be displaced, not left pinned');
+        assert.strictEqual(b.socket.connected, true, 'reconnected default-id socket must NOT be rejected');
+
+        const anon = await new Factory(clientOpts(srv.port)).createProducer();
+        await delay(120);
+        const okDeliver = await sealedCall(anon.socket, 'SEALED_DELIVER', {
+            to: { realm: 'default', identity: 'dave' },
+            blob: Buffer.from('sealed-after-default-reconnect').toString('base64'),
+            msg_id: 'n1',
+        });
+        assert.strictEqual(okDeliver.ok, true);
+        assert.strictEqual(okDeliver.delivered, 'online');
+        await delay(120);
+
+        assert.strictEqual(b.received.length, 1, 'reconnected socket must receive the sealed message');
+        assert.strictEqual(b.received[0].msg_id, 'n1');
+        assert.strictEqual(a.received.length, 0, 'displaced socket must receive nothing');
+
+        b.socket.disconnect();
+        anon.disconnect();
+    } finally { await srv.close(); env.restore(); }
+});
+
 test('a genuinely different instance (different id) with the same name is still rejected', async () => {
     const env = installSealedEnv();
     const srv = await startServer(sealedRealmOptions());
