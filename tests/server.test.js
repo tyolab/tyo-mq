@@ -207,7 +207,8 @@ test('anonymous consumers are rejected when the realm disallows them', async () 
  */
 test('idle eviction removes offline consumers after the TTL', async () => {
     const EV_PORT = 17354;
-    const evServer = new TyoMQServer({ port: EV_PORT, idle_eviction: { ttl_ms: 50, interval_ms: 10000 } });
+    // Eviction is opt-in (off by default); enable it explicitly for this test.
+    const evServer = new TyoMQServer({ port: EV_PORT, idle_eviction: { enabled: true, ttl_ms: 50, interval_ms: 10000 } });
     evServer.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop };
     evServer.start(EV_PORT);
 
@@ -235,6 +236,78 @@ test('idle eviction removes offline consumers after the TTL', async () => {
         assert.ok(removed >= 1, 'sweep should report at least one eviction');
         assert.strictEqual(realmOf(evServer.getStats()).consumers.total, 0,
             'offline consumer should be evicted after the TTL');
+    } finally {
+        evServer.stopIdleEviction();
+    }
+});
+
+/**
+ * Regression (tyostocks wedge): a consumer that still holds an active
+ * subscription must NEVER be evicted, even while offline past the TTL. Evicting
+ * it would delete its subscription routing, so on reconnect the broker no longer
+ * remembers what it subscribed to and — for any client whose re-subscribe is
+ * imperfect — it goes permanently silent until a broker restart. A busy client
+ * (long synchronous job) that misses heartbeats must survive the sweep.
+ */
+test('idle eviction never evicts a consumer with an active subscription', async () => {
+    const EV_PORT = 17362;
+    const evServer = new TyoMQServer({ port: EV_PORT, idle_eviction: { enabled: true, ttl_ms: 50, interval_ms: 10000 } });
+    evServer.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop };
+    evServer.start(EV_PORT);
+
+    const client = new Factory({ host: '127.0.0.1', port: EV_PORT, protocol: 'http' });
+    const realmOf = (stats) => stats.realms['default'] || { consumers: { total: 0 } };
+
+    try {
+        // A subscribed consumer (holds subscribeTos) and a bare consumer that
+        // never subscribes (holds nothing) — only the bare one should be reaped.
+        const subscribed = await client.createConsumer('busy-subscribed-consumer');
+        subscribed.subscribe('some-producer', 'ev', function () {});
+        const bare = await client.createConsumer('bare-consumer');
+        await delay(300); // let CONSUMER + SUBSCRIBE settle
+
+        assert.strictEqual(realmOf(evServer.getStats()).consumers.total, 2, 'both consumers registered');
+
+        // Both go offline (simulating a stalled/busy process losing its sockets).
+        subscribed.disconnect();
+        bare.disconnect();
+        await delay(150); // > ttl_ms (50)
+
+        const removed = evServer.sweepIdleRegistrations();
+        assert.strictEqual(removed, 1, 'only the bare (link-less) consumer should be evicted');
+        assert.strictEqual(realmOf(evServer.getStats()).consumers.total, 1,
+            'the subscribed consumer must survive the sweep');
+
+        // And it must survive repeated sweeps (not just the first).
+        await delay(60);
+        evServer.sweepIdleRegistrations();
+        assert.strictEqual(realmOf(evServer.getStats()).consumers.total, 1,
+            'the subscribed consumer must never be evicted while it holds a subscription');
+    } finally {
+        evServer.stopIdleEviction();
+    }
+});
+
+/**
+ * Idle eviction is OFF unless explicitly enabled — a broker with no
+ * idle_eviction config must never reap registrations (the safe default).
+ */
+test('idle eviction is disabled by default (opt-in)', async () => {
+    const EV_PORT = 17363;
+    const evServer = new TyoMQServer({ port: EV_PORT }); // no idle_eviction config
+    evServer.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop };
+    evServer.start(EV_PORT);
+    const client = new Factory({ host: '127.0.0.1', port: EV_PORT, protocol: 'http' });
+    const realmOf = (stats) => stats.realms['default'] || { consumers: { total: 0 } };
+    try {
+        const consumer = await client.createConsumer('default-off-consumer');
+        await delay(250);
+        consumer.disconnect();
+        await delay(150);
+        const removed = evServer.sweepIdleRegistrations();
+        assert.strictEqual(removed, 0, 'sweep must be a no-op when eviction is not enabled');
+        assert.strictEqual(realmOf(evServer.getStats()).consumers.total, 1,
+            'offline consumer must be retained when eviction is off by default');
     } finally {
         evServer.stopIdleEviction();
     }
