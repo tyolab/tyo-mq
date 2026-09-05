@@ -322,7 +322,7 @@ test('durable sealed inbox survives idle eviction and carries a multi-day TTL', 
     const env = installSealedEnv();
     // push not required here — this is the durable-inbox decoupling. Aggressive
     // idle-eviction TTL so a manual sweep actually evicts the offline consumer.
-    const srv = await startServer(sealedRealmOptions({ idle_eviction: { ttl_ms: 1, interval_ms: 999999 } }));
+    const srv = await startServer(sealedRealmOptions({ idle_eviction: { enabled: true, ttl_ms: 1, interval_ms: 999999 } }));
     try {
         const uak = Buffer.alloc(16, 9);
         let bob = await new Factory(clientOpts(srv.port)).createConsumer('bob');
