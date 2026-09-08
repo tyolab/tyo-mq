@@ -16,7 +16,18 @@
 
 ## Phase A — id.tyo `notify-vault` backend
 
-Independent; ships an authenticated per-user vault store. All paths under `/data/tyolab/web/tyolab/id.tyo.com.au`.
+Ships an authenticated per-user vault store. The id.tyo route lives under
+`/data/tyolab/web/tyolab/id.tyo.com.au`, but the durable store is a **Strapi v4
+content-type in the SHARED store-api** at
+`/data/tyolab/web/tyolab/store.tyo.com.au/shop-backend/` (`src/api/*`; the
+`auth-code` api is the `reach/consume-code` precedent to mirror). That instance
+is `store-api.tyo.com.au` in production, **shared by store / Prism / Reach / id**
+— so the content-type migration + deploy is a **shared-production change** and
+must be owner-coordinated, NOT the standalone/non-disruptive piece first assumed.
+Because Google Drive appData (Phase C) already gives a complete Android
+backup/restore with **no backend at all**, Phase A can be deferred without
+blocking a working Android v1 (revisits the "full tiered now" scope with the new
+cost known).
 
 ### Task A1: Strapi `notify-vault` content-type ⚙
 
