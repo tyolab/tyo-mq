@@ -131,6 +131,7 @@ Topic.display : {
   showStrategy: true,
   showPriceLine: true,
   showCompose: false,            // §9
+  notifTap: "details",           // "details" | "chart" (§10a) — default details
 }
 Topic.filters : { <field>: [values...] } | null  // remembered active filters
 ```
@@ -155,6 +156,37 @@ the owner's private topics do publish, so it's a per-topic opt-in.)
 - **On-device:** publish real tagged signals to a scratch topic → cards render
   with correct colours/chips; short = red pop-up; filter by level+dir narrows the
   list; toggle compose box; edit a level colour and see it apply.
+
+## 10a. Actions & the message detail screen
+
+The contract already carries ntfy **actions** (`NotifyAction`: `view` opens a
+URL, `http` fires a request; ≤6, first 3 on the shade). What's missing is a
+**per-message detail screen** and a clean way to reach it. Added:
+
+- **`MessageDetailActivity`** — a full-screen view of ONE message: the parsed
+  fields laid out (symbol/dir/level/strategy/price/sl/tp + any other `k=v`), the
+  raw `message`, plain tags, priority + time, and **every** action button (all
+  `msg.actions`, not just the shade's first 3). Reuses the same field parsing +
+  colour rules as the card (§2/§4). This is the "detailed noti screen".
+- **Reaching it:**
+  1. **Tapping a card** in the topic list → opens `MessageDetailActivity`.
+  2. A built-in **"View Details"** action — always available (app-internal
+     `PendingIntent` to `MessageDetailActivity`), shown on the notification
+     (as an extra action button) and on the in-app card. This is distinct from
+     publisher `view`/`http` actions and needs no publisher change.
+  3. **Notification tap** → **configurable per topic** (`Topic.display.notifTap`
+     = `details` | `chart`, default **`details`**). `chart` opens the message
+     `click` URL (e.g. TradingView); `details` opens `MessageDetailActivity`.
+- **"Chart" button:** when a message has a `click` URL, it's also surfaced as a
+  `view`-style **"Chart"** action button (on the notification + detail screen),
+  so the chart is always one tap away regardless of the tap-default.
+- Publisher `http` order-action buttons (Confirm/Direct/Fast/Contrarian) remain
+  email/desktop-only for now (they target `localhost:7777`, unreachable from the
+  phone; Notify `http` actions require https) — surfacing those on the phone is
+  the separate "expose the trade server over https" piece, still deferred.
+
+Config additions (§6): a **"Notification tap opens"** choice (Details | Chart)
+in Topic → Display. Data-model additions (§8): `Topic.display.notifTap`.
 
 ## 11. Non-goals (v1)
 
