@@ -50,7 +50,7 @@ function runOnce(env) {
     });
 }
 
-test('once posts disk/mem/load to /notify/{BOARD} with Authorization + Tags headers', async () => {
+test('once posts ONE aggregated heartbeat per host to /notify/{BOARD}', async () => {
     const stub = await startCaptureServer();
     try {
         const result = await runOnce({
@@ -61,24 +61,17 @@ test('once posts disk/mem/load to /notify/{BOARD} with Authorization + Tags head
         });
         assert.strictEqual(result.code, 0, 'script exits 0: ' + result.stderr);
 
-        assert.ok(stub.requests.length >= 1, 'at least one POST was captured');
-        for (const req of stub.requests) {
-            assert.strictEqual(req.method, 'POST');
-            assert.strictEqual(req.url, '/notify/ops', 'posted to /notify/{BOARD}');
-            assert.strictEqual(req.headers['authorization'], 'Bearer x', 'Authorization header carries TOKEN');
-            assert.ok(req.headers['tags'], 'Tags header present');
-            assert.ok(req.headers['tags'].includes('key=t1'), 'Tags header includes key=KEY: ' + req.headers['tags']);
-            assert.ok(req.headers['tags'].includes('ttl='), 'Tags header includes ttl=: ' + req.headers['tags']);
+        // Exactly one row-per-host message (key-based compaction — a per-metric
+        // message would overwrite the host's row).
+        assert.strictEqual(stub.requests.length, 1, 'exactly one POST per host per cycle');
+        const req = stub.requests[0];
+        assert.strictEqual(req.method, 'POST');
+        assert.strictEqual(req.url, '/notify/ops', 'posted to /notify/{BOARD}');
+        assert.strictEqual(req.headers['authorization'], 'Bearer x', 'Authorization header carries TOKEN');
+        const tags = req.headers['tags'] || '';
+        for (const needle of ['key=t1', 'label=t1', 'state=', 'disk=', 'mem=', 'load=', 'ttl=']) {
+            assert.ok(tags.includes(needle), 'Tags include ' + needle + ': ' + tags);
         }
-
-        // disk, mem, load metrics should each be posted once.
-        const metrics = stub.requests.map((r) => {
-            const m = /metric=([a-z]+)/.exec(r.headers['tags']);
-            return m ? m[1] : null;
-        });
-        assert.ok(metrics.includes('disk'), 'disk metric posted');
-        assert.ok(metrics.includes('mem'), 'mem metric posted');
-        assert.ok(metrics.includes('load'), 'load metric posted');
     } finally {
         await stub.close();
     }
