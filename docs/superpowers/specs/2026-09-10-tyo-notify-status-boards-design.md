@@ -89,11 +89,33 @@ keeps getting the loud events as its feed.
   is watching. Pattern = Healthchecks.io dead-man's-switch.
 - `ttl: 0` / absent ⇒ no watchdog for that key (pure state board, no liveness).
 
-### 4.3 Auth / re-use
-- Publishing to a board = the same bearer publish-token as any topic. Reading =
-  the same device-key proof. Boards are just compacted private topics — the
-  claim/token/rotate/unclaim machinery (incl. the endpoints still owed to the web
-  dashboard) all apply unchanged.
+### 4.3 Auth — boards are service-managed
+- **Ownership:** the broker generates + holds a per-board key and claims the
+  compacted topic with it (broker-initiated claim). The board is bound to a
+  TYO-ID account.
+- **Publishing** (the watcher): a **labeled Bearer publish token** from the board's
+  `notify_publish_tokens` set (§4.4). No signing.
+- **Management** (create board, mint/list/revoke tokens, set name): authorized by
+  **`x-service-token`** (the notify-vault pattern) from store-backend, naming the
+  board topic + authed user. No device-key proof.
+- **Reading `/board`** (v1 = dashboard only): the dashboard backend calls the
+  broker with its service token on behalf of the authed user (the broker holds the
+  board-key). Phone/desktop still receive the loud DOWN/threshold events via the
+  normal push path. Direct device reads of a board (phone/desktop board views) are
+  v2 (sync the board-key to devices via the vault, or proxy — decide then).
+
+### 4.4 Per-watcher publish tokens (`notify_publish_tokens`)
+- New table `notify_publish_tokens(topic, token_id, token_hash, label, created_at,
+  last_used_at?)` — supersedes the single `publish_token_hash` column for boards
+  (personal topics keep their single token; the board set is additive).
+- **Publish auth:** broker matches the request's Bearer token against ANY
+  non-revoked `token_hash` for the topic.
+- `POST /notify/{topic}/tokens` → mint. Auth: service token (board) or owner proof
+  (personal). Body `{label}`. Returns `{token_id, token /* one-time raw */, label,
+  created_at}`.
+- `GET /notify/{topic}/tokens` → list metadata only (never raw tokens).
+- `DELETE /notify/{topic}/tokens/{token_id}` → revoke (delete by id; immediate).
+- store-backend's watcher record = 1:1 with `token_id`.
 
 ## 5. Contract (producers + clients)
 
@@ -113,8 +135,10 @@ Body: "web1 disk 96%"
 - `metric`, `value` — the headline reading ("disk", "96%"). Extra `k=v` allowed.
 - `ttl` — seconds until the next update is due (watchdog). Omit ⇒ no liveness.
 
-**Board fetch:** `GET /notify/{board}/board` (signed for private) → latest-per-key
-+ board `name`. **Live:** subscribe as normal; index incoming messages by `key`.
+**Board fetch:** `GET /notify/{board}/board` → latest-per-key + board `name`.
+Boards are service-managed (§4.3): the dashboard backend fetches this with its
+service token for the authed user. **Live:** the backend proxies the board's
+message stream; the client indexes incoming messages by `key` and replaces rows.
 
 ## 6. Producer — `tyo-notify-watch` (small; I'll own it)
 
@@ -154,24 +178,54 @@ Body: "web1 disk 96%"
 
 ## 8. Division of labour
 
+**Three backend roles, not one** (corrected 2026-09-10 after store-backend's
+ownership note — I'd conflated them):
+
 | Piece | Owner |
 |---|---|
-| Compacted-topic mode, `key`, `/board`, SSE replace, retention | **Me / broker** |
-| Watchdog sweep + synthetic DOWN/RECOVERED | **Me / broker** |
-| Status field vocabulary in the shared card contract | **Me / broker** |
-| `tyo-notify-watch` + one-liner installer + `get.tyonotify.com/watch` hosting | **Me** (script) / **backend** (hosting the install endpoint) |
-| Dashboard board view + onboarding + install-confirm + board naming | **Backend agent** |
+| Compacted-topic mode, `key`, `/board`, SSE replace, retention | **broker (me)** |
+| Watchdog sweep + synthetic DOWN/RECOVERED | **broker (me)** |
+| **Per-watcher publish tokens** — multiple labeled, independently-revocable tokens per board topic (`notify_publish_tokens`); mint/list/revoke API | **broker (me)** |
+| Status field vocabulary in the shared card contract | **broker (me)** |
+| `tyo-notify-watch` script | **me** |
+| **"My watchers" ownership API** (create/list/revoke a watcher, request token mint/revoke from broker, emit the `curl … | sh`) + hosting the install endpoint | **store-backend** (`work3-agent-backend#1`) — mirrors notify-vault |
+| Board view / topic rendering / onboarding UX + board naming | **trymq-web** (`work3-agent#20`) |
 | Phone/desktop board views | **v2** |
 
-Handoff pattern = the rotate/unclaim one: I pin the byte-level board + watchdog
-contract, then hand the backend agent a precise slice.
+Handoff pattern = the rotate/unclaim one: I pin the byte-level contract, then
+hand each agent its precise slice (store-backend: the `notify_publish_tokens`
+mint/revoke API; trymq-web: the `/board` render contract).
+
+**Token model:** one board = one compacted topic; hosts = `key`s within it;
+watchers = per-host *labeled* publish tokens on that one topic (revoke one box
+without re-tokening the fleet). The broker is the token authority; store-backend
+owns the management/UX layer; id stays identity/session only.
+
+**Ownership model — SETTLED (Eric, 2026-09-10): two resource classes.**
+- **Personal private topics** (a user's signals topic, etc.) — **device-key-owned**:
+  only the user's devices can read; the server cannot. Server-side management
+  (rotate/unclaim) is possible only for plaintext vaults, else app-only. Unchanged.
+- **Boards** — **broker-held board-key**. Web-accessible by design, so they can't
+  be gated by an on-device-only key. The broker generates + holds a per-board key
+  and owns the compacted topic; the user's master device key is never involved
+  (no escrow, works for passphrase vaults too). Consequence, accepted by the owner:
+  the broker CAN read a board's data (host names/metrics) — appropriate for a
+  hosted status view, and NOT device-only-private. Anything needing device-only
+  privacy uses a personal topic instead.
+- Therefore **no service signs device-key proofs for boards**: store-backend's
+  "my watchers" API and the dashboard's board reads are authorized by a **service
+  token** (x-service-token, the notify-vault pattern) naming the board topic + the
+  authed TYO-ID user. Signing capability question is moot for boards.
 
 ## 9. Security & privacy
 
-- Boards are private compacted topics — same key-proof read model; no new trust
-  surface, no SSH keys anywhere (the box pushes out).
-- The install one-liner carries a **publish-only** token (can post to one board,
-  can't read or claim). Rotatable/revocable via the topic endpoints.
+- Boards use a **broker-held board-key** (server-readable status; §4.3), a
+  deliberate, owner-approved step down from the device-only model used for personal
+  topics. No SSH keys anywhere (the box pushes out); the master device key is never
+  escrowed.
+- Each watcher's install one-liner carries a **labeled, publish-only** token (can
+  post to one board, can't read/claim/manage), independently revocable by
+  `token_id` (§4.4).
 - The watcher runs `0600` config, no inbound access, no agent phoning a third
   party — it only POSTs to the broker the user owns.
 - Board content is user data (host names, metrics) on the user's own private
