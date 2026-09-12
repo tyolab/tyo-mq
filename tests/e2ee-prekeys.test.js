@@ -8,9 +8,22 @@
 'use strict';
 
 const assert = require('assert');
+const os = require('os');
+const path = require('path');
+const fs = require('fs');
 const { test, run } = require('./runner');
 const { startServer, delay } = require('./helpers');
 const Factory = require('tyo-mq-client').Factory;
+
+function tmpPrekeyDb() {
+    return path.join(os.tmpdir(),
+        'tyo-prekeys-e2e-' + process.pid + '-' + Math.floor(Math.random() * 1e9) + '.sqlite');
+}
+function cleanupDb(file) {
+    for (const suffix of ['', '-wal', '-shm']) {
+        try { fs.unlinkSync(file + suffix); } catch (e) {}
+    }
+}
 
 function clientOpts(port, auth) {
     return { host: '127.0.0.1', port: port, protocol: 'http', auth: auth };
@@ -165,6 +178,86 @@ test('a bundle without the Kyber prekey is rejected (PQXDH required)', async () 
         alice.disconnect();
     } finally {
         await srv.close();
+    }
+});
+
+test('a published bundle survives a broker restart (durable directory)', async () => {
+    // The core regression: without the durable store the directory is node-local
+    // in-memory, so a restart wipes alice's bundle and bob's next take gets
+    // found:false → the accepter's first send fails with NoSession. With the
+    // prekey_store wired, the bundle (and the consume) survive the restart.
+    const file = tmpPrekeyDb();
+    const opts = { prekey_store: { filename: file } };
+    try {
+        // First process: alice publishes, bob takes one (consumes OTP-1).
+        const srv1 = await startServer(opts);
+        assert.ok(srv1.server._prekeyStore, 'durable prekey store should be enabled by prekey_store setting');
+        const alice1 = await new Factory(clientOpts(srv1.port)).createConsumer('alice');
+        const bob1 = await new Factory(clientOpts(srv1.port)).createProducer('bob');
+        await delay(150);
+        await alice1.publishPrekeys(bundle());
+        const t1 = await bob1.takePrekeys('alice');
+        assert.strictEqual(t1.one_time_prekey_id, 1); // OTP-1 consumed
+        alice1.disconnect();
+        bob1.disconnect();
+        await delay(50);
+        if (srv1.server._prekeyStore) srv1.server._prekeyStore.close();
+        await srv1.close();
+
+        // Restart: a fresh broker over the same file hydrates alice's bundle.
+        const srv2 = await startServer(opts);
+        const bob2 = await new Factory(clientOpts(srv2.port)).createProducer('bob');
+        await delay(150);
+        const t2 = await bob2.takePrekeys('alice');
+        assert.strictEqual(t2.found, true, 'alice bundle must survive the restart');
+        assert.strictEqual(t2.identity_key, 'IDENT-PUB');
+        assert.strictEqual(t2.signed_prekey, 'SIGNED-PUB');
+        assert.strictEqual(t2.kyber_prekey, 'KYBER-PUB');
+        // OTP-1 was consumed pre-restart and must NOT resurrect; next is OTP-2.
+        assert.strictEqual(t2.one_time_prekey_id, 2, 'consumed OTK must not resurrect after restart');
+        assert.strictEqual(t2.one_time_remaining, 1);
+        bob2.disconnect();
+        await delay(50);
+        if (srv2.server._prekeyStore) srv2.server._prekeyStore.close();
+        await srv2.close();
+    } finally {
+        cleanupDb(file);
+    }
+});
+
+test('a drained-pool bundle still serves signed-prekey-only after a restart', async () => {
+    // A long-lived account whose one-time pool is exhausted must still be
+    // reachable by a fresh contact after a restart — X3DH completes on the
+    // signed prekey alone (one_time_prekey null, all signed material present).
+    const file = tmpPrekeyDb();
+    const opts = { prekey_store: { filename: file } };
+    try {
+        const srv1 = await startServer(opts);
+        const alice1 = await new Factory(clientOpts(srv1.port)).createConsumer('alice');
+        const bob1 = await new Factory(clientOpts(srv1.port)).createProducer('bob');
+        await delay(150);
+        await alice1.publishPrekeys(bundle({ one_time_prekeys: [{ id: 1, key: 'OTP-1' }] }));
+        await bob1.takePrekeys('alice'); // drains the single OTK
+        alice1.disconnect();
+        bob1.disconnect();
+        await delay(50);
+        if (srv1.server._prekeyStore) srv1.server._prekeyStore.close();
+        await srv1.close();
+
+        const srv2 = await startServer(opts);
+        const bob2 = await new Factory(clientOpts(srv2.port)).createProducer('bob');
+        await delay(150);
+        const t = await bob2.takePrekeys('alice');
+        assert.strictEqual(t.found, true, 'drained bundle still served after restart');
+        assert.strictEqual(t.one_time_prekey, null, 'no OTK left — signed-prekey-only');
+        assert.strictEqual(t.signed_prekey, 'SIGNED-PUB');
+        assert.strictEqual(t.signed_prekey_sig, 'SIGNED-SIG');
+        bob2.disconnect();
+        await delay(50);
+        if (srv2.server._prekeyStore) srv2.server._prekeyStore.close();
+        await srv2.close();
+    } finally {
+        cleanupDb(file);
     }
 });
 
