@@ -51,8 +51,8 @@ test('parsePush defaults to wake and honours content/off', async () => {
 
 // ── buildMessage ──────────────────────────────────────────────────────────────
 test('buildMessage produces an ntfy-shaped object, omitting empties', async () => {
-    const m = N.buildMessage({ topic: 'alerts', message: 'hi', id: 'n-1', time: 100 });
-    assert.deepStrictEqual(m, { id: 'n-1', time: 100, event: 'message', topic: 'alerts', message: 'hi' });
+    const m = N.buildMessage({ topic: 'alerts', message: 'hi', id: 'n-1', time: 1789260000 });
+    assert.deepStrictEqual(m, { id: 'n-1', time: 1789260000, event: 'message', topic: 'alerts', message: 'hi' });
 
     const full = N.buildMessage({
         topic: 'alerts', message: 'boom', title: 'Alert', priority: 'high',
@@ -69,6 +69,15 @@ test('buildMessage generates an id and unix time when omitted', async () => {
     const m = N.buildMessage({ topic: 't', message: 'x' });
     assert.ok(/^n-[0-9a-f]{18}$/.test(m.id));
     assert.ok(m.time > 1000000000, 'unix seconds');
+});
+
+test('normalizeTime honours plausible seconds, rejects garbage/ms to receipt time', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    assert.strictEqual(N.normalizeTime(1789260000), 1789260000);   // plausible seconds kept
+    assert.ok(Math.abs(N.normalizeTime(undefined) - now) <= 2);    // absent -> receipt
+    assert.ok(Math.abs(N.normalizeTime('abc') - now) <= 2);        // garbage -> receipt
+    assert.ok(Math.abs(N.normalizeTime(Date.now()) - now) <= 2);   // ms value rejected -> receipt
+    assert.ok(Math.abs(N.normalizeTime(100) - now) <= 2);          // year-1970 rejected -> receipt
 });
 
 // ── ring: append + since ──────────────────────────────────────────────────────
