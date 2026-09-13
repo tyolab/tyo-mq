@@ -29,6 +29,18 @@ function clientOpts(port, auth) {
     return { host: '127.0.0.1', port: port, protocol: 'http', auth: auth };
 }
 
+// PREKEY_STATS has no tyo-mq-client wrapper (it's an operator diagnostic that
+// the raw secure-chat clients call over the socket protocol), so drive it
+// through the client's underlying socket, the same one publishPrekeys uses.
+function statPrekeys(client, identity) {
+    return new Promise((resolve, reject) => {
+        client.socket.emit('PREKEY_STATS', identity ? { identity: identity } : {}, function (resp) {
+            if (resp && resp.ok) resolve(resp);
+            else reject(new Error((resp && resp.message) || 'PREKEY_STATS failed'));
+        });
+    });
+}
+
 function bundle(overrides) {
     return Object.assign({
         identity_key: 'IDENT-PUB',
@@ -258,6 +270,72 @@ test('a drained-pool bundle still serves signed-prekey-only after a restart', as
         await srv2.close();
     } finally {
         cleanupDb(file);
+    }
+});
+
+test('PREKEY_STATS reports public directory metadata (counts, pool depth) and NO key material', async () => {
+    const srv = await startServer({});
+    try {
+        const alice = await new Factory(clientOpts(srv.port)).createConsumer('alice');
+        const carol = await new Factory(clientOpts(srv.port)).createConsumer('carol');
+        const bob = await new Factory(clientOpts(srv.port)).createProducer('bob');
+        await delay(150);
+
+        await alice.publishPrekeys(bundle()); // 3 one-time prekeys
+        await carol.publishPrekeys(bundle({ one_time_prekeys: [] })); // signed-prekey-only
+        await bob.takePrekeys('alice'); // consume one of alice's OTKs → pool 2
+
+        // Whole-realm view: two accounts have bundles, with the right pool depths.
+        const all = await statPrekeys(bob);
+        assert.strictEqual(all.ok, true);
+        assert.strictEqual(all.count, 2);
+        assert.strictEqual(all.identities.alice.has_bundle, true);
+        assert.strictEqual(all.identities.alice.pool_size, 2, 'one OTK was consumed');
+        assert.ok(all.identities.alice.updated_at, 'updated_at present');
+        assert.strictEqual(all.identities.carol.has_bundle, true);
+        assert.strictEqual(all.identities.carol.pool_size, 0, 'signed-prekey-only account');
+
+        // No key material may appear anywhere in the response.
+        const blob = JSON.stringify(all);
+        ['IDENT-PUB', 'SIGNED-PUB', 'SIGNED-SIG', 'KYBER-PUB', 'KYBER-SIG', 'OTP-1', 'OTP-2', 'OTP-3']
+            .forEach(secret => assert.strictEqual(blob.indexOf(secret), -1,
+                'PREKEY_STATS must not leak key material: ' + secret));
+
+        // Single-identity view for a known and an unknown account.
+        const oneA = await statPrekeys(bob, 'alice');
+        assert.strictEqual(oneA.count, 1);
+        assert.strictEqual(oneA.identities.alice.pool_size, 2);
+        const none = await statPrekeys(bob, 'nobody');
+        assert.strictEqual(none.count, 0);
+        assert.strictEqual(none.identities.nobody.has_bundle, false);
+        assert.strictEqual(none.identities.nobody.pool_size, 0);
+
+        alice.disconnect();
+        carol.disconnect();
+        bob.disconnect();
+    } finally {
+        await srv.close();
+    }
+});
+
+test('PREKEY_STATS is realm-isolated (never reports another realm\'s accounts)', async () => {
+    const srv = await startServer({
+        auth: { enabled: true, realms: { 'realm-a': { required: false }, 'realm-b': { required: false } } }
+    });
+    try {
+        const inA = await new Factory(clientOpts(srv.port, { realm: 'realm-a' })).createConsumer('alice');
+        const inB = await new Factory(clientOpts(srv.port, { realm: 'realm-b' })).createProducer('bob');
+        await delay(150);
+
+        await inA.publishPrekeys(bundle());
+        const fromB = await statPrekeys(inB);
+        assert.strictEqual(fromB.count, 0, "realm-b must not see realm-a's alice");
+        assert.strictEqual(fromB.identities.alice, undefined);
+
+        inA.disconnect();
+        inB.disconnect();
+    } finally {
+        await srv.close();
     }
 });
 
