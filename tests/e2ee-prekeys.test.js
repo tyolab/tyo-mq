@@ -339,4 +339,39 @@ test('PREKEY_STATS is realm-isolated (never reports another realm\'s accounts)',
     }
 });
 
+test('PREKEY_PUBLISH evicts stale prekey material when the identity key changes (reinstall)', async () => {
+    const srv = await startServer({});
+    try {
+        const alice = await new Factory(clientOpts(srv.port)).createConsumer('alice');
+        const bob = await new Factory(clientOpts(srv.port)).createProducer('bob');
+        await delay(150);
+
+        // Alice registers identity A with 2 one-time prekeys.
+        await alice.publishPrekeys(bundle({ identity_key: 'IDENT-A', one_time_prekeys: [{ id: 1, key: 'OTP-A1' }, { id: 2, key: 'OTP-A2' }] }));
+        let s = await statPrekeys(bob, 'alice');
+        assert.strictEqual(s.identities.alice.pool_size, 2);
+
+        // Alice REINSTALLS: same name, a NEW identity key + 1 fresh one-time prekey.
+        // The old identity's dead material must be evicted (append would leave 3).
+        await alice.publishPrekeys(bundle({ identity_key: 'IDENT-B', one_time_prekeys: [{ id: 9, key: 'OTP-B9' }] }));
+        s = await statPrekeys(bob, 'alice');
+        assert.strictEqual(s.identities.alice.pool_size, 1, 'stale OTKs from the old identity must be evicted, not appended');
+
+        // A SAME-identity republish (signed-prekey-only reload) must NOT evict the pool.
+        await alice.publishPrekeys(bundle({ identity_key: 'IDENT-B', one_time_prekeys: [] }));
+        s = await statPrekeys(bob, 'alice');
+        assert.strictEqual(s.identities.alice.pool_size, 1, 'a same-identity reload keeps the existing pool');
+
+        // The served bundle carries the NEW identity and only its one-time prekey.
+        const taken = await bob.takePrekeys('alice');
+        assert.strictEqual(taken.identity_key, 'IDENT-B');
+        assert.strictEqual(taken.one_time_prekey, 'OTP-B9');
+
+        alice.disconnect();
+        bob.disconnect();
+    } finally {
+        await srv.close();
+    }
+});
+
 run();
