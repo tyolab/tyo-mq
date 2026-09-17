@@ -257,4 +257,71 @@ test('board sse-ticket via service token (no device proof) issues a ticket; wron
     }
 });
 
+// Minimal SSE consumer: opens the stream and accumulates parsed `data:` frames.
+function openSse(port, pathname) {
+    return new Promise((resolve) => {
+        const frames = [];
+        let buf = '';
+        const req = http.get({ host: '127.0.0.1', port, path: pathname, headers: { accept: 'text/event-stream' } }, (res) => {
+            res.setEncoding('utf8');
+            res.on('data', (c) => {
+                buf += c;
+                let i;
+                while ((i = buf.indexOf('\n\n')) >= 0) {
+                    const block = buf.slice(0, i); buf = buf.slice(i + 2);
+                    const dl = block.split('\n').find((l) => l.startsWith('data:'));
+                    if (dl) { try { frames.push(JSON.parse(dl.slice(5).trim())); } catch (e) { /* keep-alive/comment */ } }
+                }
+            });
+            resolve({ frames, close: () => req.destroy() });
+        });
+        req.on('error', () => {});
+    });
+}
+async function waitForFrame(sse, pred, timeoutMs) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        const f = sse.frames.find(pred);
+        if (f) return f;
+        await delay(80);
+    }
+    return null;
+}
+
+test('watchdog DOWN and compaction RECOVERED are delivered LIVE on the board SSE stream', async () => {
+    process.env.NOTIFY_SERVICE_TOKEN = SERVICE;
+    const prev = process.env.NOTIFY_WATCHDOG_MS;
+    process.env.NOTIFY_WATCHDOG_MS = '200';
+    const server = await startServer({ notify: { enabled: true }, notify_store: { filename: tmp() } });
+    let sse;
+    try {
+        const board = 'ops-sse-watchdog';
+        await httpRequest(server.port, 'POST', `/notify/${board}/board`, { headers: { 'x-service-token': SERVICE }, body: { name: 'S' } });
+        const minted = await httpRequest(server.port, 'POST', `/notify/${board}/tokens`, { headers: { 'x-service-token': SERVICE }, body: { label: 'web1' } });
+        const tok = minted.json.token;
+        const tkt = await httpRequest(server.port, 'POST', `/notify/${board}/sse-ticket`, { headers: { 'x-service-token': SERVICE }, body: {} });
+
+        sse = await openSse(server.port, `/notify/${board}/sse?ticket=${tkt.json.ticket}`);
+        await delay(150); // let the SSE subscription register
+
+        // Baseline: a heartbeat is delivered live on SSE.
+        await httpRequest(server.port, 'POST', `/notify/${board}`, { headers: { authorization: 'Bearer ' + tok, tags: 'key=web1,label=web1,state=ok,ttl=1' }, raw: 'beat' });
+        assert.ok(await waitForFrame(sse, (f) => f.message === 'beat', 2000), 'heartbeat delivered on SSE');
+
+        // The bug: the watchdog DOWN card (state=crit, source=watchdog) must arrive LIVE.
+        const down = await waitForFrame(sse, (f) => (f.tags || []).includes('source=watchdog') && (f.tags || []).includes('state=crit'), 4000);
+        assert.ok(down, 'watchdog DOWN delivered on SSE; frames=' + JSON.stringify(sse.frames.map((x) => x.tags)));
+
+        // The next beat clears it → the compaction RECOVERED card must arrive LIVE.
+        await httpRequest(server.port, 'POST', `/notify/${board}`, { headers: { authorization: 'Bearer ' + tok, tags: 'key=web1,label=web1,state=ok,ttl=1' }, raw: 'beat2' });
+        const recov = await waitForFrame(sse, (f) => (f.tags || []).includes('source=watchdog') && (f.tags || []).includes('state=ok'), 3000);
+        assert.ok(recov, 'RECOVERED delivered on SSE; frames=' + JSON.stringify(sse.frames.map((x) => x.tags)));
+    } finally {
+        if (sse) sse.close();
+        await server.close();
+        if (prev === undefined) delete process.env.NOTIFY_WATCHDOG_MS;
+        else process.env.NOTIFY_WATCHDOG_MS = prev;
+    }
+});
+
 run();
