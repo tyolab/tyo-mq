@@ -422,8 +422,8 @@ Realms come in two forms: **permanent** (the default) and **ephemeral /
 disposable** — created with `add_realm {ephemeral: true, ttl: '2h'}` and
 disposed of automatically when the TTL lapses (config, scoped tokens, runtime
 state, connected sockets, and stored messages are all removed). Convert
-between the forms with `set_realm_lifetime`. See [REALM.md](REALM.md) for
-details, and [EPHEMERAL-REALMS.md](EPHEMERAL-REALMS.md) for a self-contained
+between the forms with `set_realm_lifetime`. See [REALM.md](docs/REALM.md) for
+details, and [EPHEMERAL-REALMS.md](docs/EPHEMERAL-REALMS.md) for a self-contained
 implementation guide to provisioning ephemeral realms programmatically.
 
 When auth is enabled and no `realm: "*", role: "admin"` token is configured,
@@ -503,7 +503,7 @@ settings, `--auth-store`, or `TYO_MQ_AUTH_STORE=true`; Node 22+): realms and
 tokens are then persisted
 row-level in SQLite (WAL, crash-safe) instead of rewriting the JSON file on
 every change, with automatic import of existing data on first boot. See
-[AUTHENTICATION.md](AUTHENTICATION.md#sqlite-auth-store).
+[AUTHENTICATION.md](docs/AUTHENTICATION.md#sqlite-auth-store).
 
 Approved client tokens can be revoked through the interactive manager or the
 signed management command `revoke_token`. Revocation can identify a token by
