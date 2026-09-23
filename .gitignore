@@ -6,4 +6,7 @@ tests/fixtures/sealed-crosslang.json
 *.sqlite-shm
 *.sqlite-wal
 client_secret_495151116594-s7n28kvhb635t858nhmr0ocvb7srdoo7.apps.googleusercontent.com.json
-docs/superpowers/
+# Internal design specs & plans live in the private tyolab/tyo-mq-docs repo.
+# Keep only the user-facing clustering guide (linked from the README) public.
+docs/*
+!docs/CLUSTERING.md
