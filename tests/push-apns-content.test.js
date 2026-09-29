@@ -90,4 +90,47 @@ test('a WAKE payload stays a contentless silent background push', async () => {
     } finally { await fake.close(); }
 });
 
+test('a CONTENT payload forwards tags, click and time for the NSE to render', async () => {
+    const fake = await startFakeApns();
+    try {
+        const t = makeTransport(fake);
+        const payload = push.buildNotifyPayload({
+            topic: 'alerts', id: '7', message: 'Disk 91%', priority: 4,
+            tags: ['warning', 'disk'], click: 'https://example.com/host/db1', time: 1759000000,
+        }, 'content');
+        await t.send({ transport: 'apns', token: 'dev-1', payload: payload });
+        const b = JSON.parse(fake.state.requests[0].body);
+        // Without these the iOS app cannot show emoji tags, cannot tap through to
+        // a URL, and dates every message at receipt time.
+        assert.strictEqual(b.tags, 'warning,disk');
+        assert.strictEqual(b.click, 'https://example.com/host/db1');
+        assert.strictEqual(b.time, '1759000000');
+    } finally { await fake.close(); }
+});
+
+test('a CONTENT payload omits tags/click/time when the message has none', async () => {
+    const fake = await startFakeApns();
+    try {
+        const t = makeTransport(fake);
+        const payload = push.buildNotifyPayload({ topic: 'alerts', message: 'plain' }, 'content');
+        await t.send({ transport: 'apns', token: 'dev-1', payload: payload });
+        const b = JSON.parse(fake.state.requests[0].body);
+        assert.ok(!('tags' in b) && !('click' in b) && !('time' in b), 'no empty keys');
+    } finally { await fake.close(); }
+});
+
+test('actions are deliberately NOT forwarded to APNs', async () => {
+    const fake = await startFakeApns();
+    try {
+        const t = makeTransport(fake);
+        const payload = push.buildNotifyPayload({
+            topic: 'alerts', message: 'Restart?',
+            actions: [{ action: 'http', label: 'Restart', url: 'https://example.com/r' }],
+        }, 'content');
+        await t.send({ transport: 'apns', token: 'dev-1', payload: payload });
+        const b = JSON.parse(fake.state.requests[0].body);
+        assert.ok(!('actions' in b), 'iOS cannot show them yet; do not spend payload budget');
+    } finally { await fake.close(); }
+});
+
 run();
