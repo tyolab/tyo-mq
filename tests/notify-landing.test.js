@@ -61,8 +61,9 @@ test('bare /notify/{topic} with Accept: text/html → HTML landing page (not a h
         assert.ok(r.body.indexOf('auction-alerts') !== -1, 'names the topic');
         // Opens the app for existing users via the custom scheme…
         assert.ok(r.body.indexOf('tyonotify://subscribe?topic=auction-alerts') !== -1, 'carries the app deep link');
-        // …and offers the store for everyone else.
-        assert.ok(r.body.indexOf('au.com.tyo.notify') !== -1, 'links the Android app');
+        // …and offers BOTH stores for everyone else.
+        assert.ok(r.body.indexOf('au.com.tyo.notify') !== -1, 'links the Android app (Play)');
+        assert.ok(r.body.indexOf('apps.apple.com/app/id6804510763') !== -1, 'links the iOS app (App Store)');
         // Points the deep link at THIS broker (server= param, url-encoded).
         assert.ok(r.body.indexOf('server=http') !== -1, 'deep link names this broker');
     } finally {
@@ -128,6 +129,29 @@ test('deep link server= is https for a public host even when TLS is terminated u
         // …and a local dev host stays http (no false https promotion).
         const loc = await httpText(server.port, 'GET', '/notify/mytopic', { Accept: BROWSER, Host: '127.0.0.1:8080' });
         assert.ok(loc.body.indexOf('server=http%3A%2F%2F127.0.0.1%3A8080') !== -1, 'local host stays http');
+    } finally {
+        await server.close();
+    }
+});
+
+test('raw page carries a plain-ampersand canonical link (no &amp; mis-parse for QR/copy)', async () => {
+    const server = await startServer({ notify: { enabled: true } });
+    try {
+        const r = await httpText(server.port, 'GET', '/notify/auction-alerts', { Accept: BROWSER, Host: 'self.example.com' });
+        // The raw bytes must contain the deep link with a LITERAL & so a QR
+        // generator / copy-paste off view-source gets server= intact rather than
+        // a param named `amp;server` that both clients drop.
+        assert.ok(r.body.indexOf('tyonotify://subscribe?topic=auction-alerts&server=https%3A%2F%2Fself.example.com') !== -1,
+            'canonical link present with a plain ampersand');
+        // And that literal-& form must NOT be the entity-mangled one.
+        assert.ok(r.body.indexOf('topic=auction-alerts&amp;server=') !== -1,
+            'the tap href is still entity-escaped (valid HTML, no-JS fallback)');
+        // A raw extraction of the data-href parses to the right (topic, server).
+        const m = r.body.match(/data-href="(tyonotify:\/\/[^"]+)"/);
+        assert.ok(m, 'data-href present');
+        const u = new URL(m[1]);
+        assert.strictEqual(u.searchParams.get('topic'), 'auction-alerts');
+        assert.strictEqual(u.searchParams.get('server'), 'https://self.example.com', 'server= survives a raw parse');
     } finally {
         await server.close();
     }
