@@ -157,13 +157,21 @@ test('reconnect with a DEFAULT id (id === name, e.g. the Node client) displaces 
     } finally { await srv.close(); env.restore(); }
 });
 
-test('a genuinely different instance (different id) with the same name is still rejected', async () => {
+test('a genuinely different instance (different id) with the same name is still rejected — and the holder is told', async () => {
     const env = installSealedEnv();
     const srv = await startServer(sealedRealmOptions());
     try {
         const a = await rawConsumer(srv.port, 'bob', 'bob-instance-1');
         const set = await sealedCall(a.socket, 'SEALED_UAK_SET', { identity: 'bob', mode: 'unrestricted' });
         assert.strictEqual(set.ok, true);
+
+        // The HOLDER must learn that a distinct instance tried to take its
+        // identity: that is the only broker-visible trace of an identity
+        // backup restored onto a second phone (same identity key, so no
+        // key-change alert ever fires) and the signal a client needs to warn
+        // "active on another device" honestly instead of guessing.
+        const holderNotices = [];
+        a.socket.on('DUPLICATE_REGISTRATION', (m) => holderNotices.push(m));
 
         // Second, DIFFERENT instance claims the same name — misconfiguration.
         const errors = [];
@@ -173,6 +181,15 @@ test('a genuinely different instance (different id) with the same name is still 
 
         assert.strictEqual(a.socket.connected, true, 'the established consumer must be preserved');
         assert.strictEqual(b.socket.connected, false, 'the duplicate newcomer must be disconnected');
+
+        assert.strictEqual(holderNotices.length, 1, 'the holder gets exactly one DUPLICATE_REGISTRATION');
+        const notice = holderNotices[0];
+        assert.strictEqual(notice.name, 'bob');
+        assert.strictEqual(notice.realm, 'default');
+        assert.strictEqual(notice.rejected_id, 'bob-instance-2', 'carries the rejected instance id, not the holder\'s');
+        assert.strictEqual(typeof notice.rejected_socket, 'string');
+        assert.ok(!Number.isNaN(Date.parse(notice.at)), 'at is an ISO timestamp');
+        assert.ok(!('ip' in notice) && !('token' in notice) && !('uak' in notice), 'opaque ids only — no address or token material');
 
         // Delivery still reaches the original consumer A.
         const anon = await new Factory(clientOpts(srv.port)).createProducer();
