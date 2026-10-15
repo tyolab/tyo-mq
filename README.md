@@ -416,7 +416,22 @@ var consumerMq = new Factory({
 The pre-shared key and acceptance requirement are managed with the signed
 management commands `set_realm_key` and `set_realm_acceptance` — available from
 the interactive manager (`npm run manager`), the web manager UI
-(`npm run manager:web`), or `Authorization.authManagementCommand()`.
+(`npm run manager:web`), or `Authorization.authManagementCommand()`. Any single
+signed command can also be sent from a shell with
+`node scripts/admin-command.js <command> --json '{…}'` (admin token from `.env`,
+never printed).
+
+**Push wakes.** When a message is queued for an offline identity that has a
+registered push endpoint, the broker sends a contentless wake. The *sender*
+chooses the kind per message with a top-level `wake` field on `PRODUCE` and
+`SEALED_DELIVER`: `"alert"` (a visible, generic notification — never throttled
+by APNs), `"silent"` (a background nudge), or `false` (queue, but send no push —
+for receipts and other control traffic). A message with no hint gets the realm's
+default, set with `set_realm_push {realm, default_wake, alert: {title, body,
+collapse_id, thread_id, extra}}`; the alert copy is realm configuration, never
+message content, and the broker hardcodes no product name. Wakes are coalesced
+per identity for a few seconds and the window resets whenever the identity
+reconnects, so every offline episode gets its own wake.
 
 Realms come in two forms: **permanent** (the default) and **ephemeral /
 disposable** — created with `add_realm {ephemeral: true, ttl: '2h'}` and
