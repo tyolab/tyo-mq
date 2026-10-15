@@ -4,6 +4,9 @@
  */
 
 const http    = require('http');
+const path    = require('path');
+const os      = require('os');
+const fs      = require('fs');
 const { Server }  = require('socket.io');
 const TyoMQServer = require('../lib/server');
 const Factory     = require('tyo-mq-client').Factory;
@@ -20,7 +23,17 @@ function startServer(options) {
             pingTimeout:  10000,
         });
 
-        const mqServer = new TyoMQServer(options || {});
+        // The chat push registry is durable by default (tyo-mq.push.sqlite in
+        // the cwd when push is configured). Tests must never share that file —
+        // stale endpoints from an earlier test would be hydrated and woken —
+        // so give every test broker its own temp store unless the test chose one.
+        const opts = Object.assign({}, options || {});
+        let pushStoreFile = null;
+        if (opts.push_store === undefined) {
+            pushStoreFile = path.join(os.tmpdir(), 'tyo-mq-test-push-' + process.pid + '-' + Math.random().toString(36).slice(2) + '.sqlite');
+            opts.push_store = { filename: pushStoreFile };
+        }
+        const mqServer = new TyoMQServer(opts);
         const noop = () => {};
         mqServer.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop };
         mqServer.create(io);
@@ -31,7 +44,11 @@ function startServer(options) {
                 port,
                 server: mqServer,
                 close: () => new Promise(res => {
-                    io.close(() => httpServer.close(res));
+                    io.close(() => httpServer.close(() => {
+                        if (pushStoreFile)
+                            for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(pushStoreFile + suffix); } catch (e) {} }
+                        res();
+                    }));
                 }),
             });
         });

@@ -51,10 +51,11 @@ function installPushEnv() {
     process.env.TYO_MQ_PUSH_TRANSPORT = 'null';
     return { restore: () => { if (prev === undefined) delete process.env.TYO_MQ_PUSH_TRANSPORT; else process.env.TYO_MQ_PUSH_TRANSPORT = prev; } };
 }
+// The ONLINE lost-ack window has its own knob (the drain/replay one stays at its default).
 function installAckTimeout(ms) {
-    const prev = process.env.TYO_MQ_SEALED_REPLAY_ACK_TIMEOUT_MS;
-    process.env.TYO_MQ_SEALED_REPLAY_ACK_TIMEOUT_MS = String(ms);
-    return { restore: () => { if (prev === undefined) delete process.env.TYO_MQ_SEALED_REPLAY_ACK_TIMEOUT_MS; else process.env.TYO_MQ_SEALED_REPLAY_ACK_TIMEOUT_MS = prev; } };
+    const prev = process.env.TYO_MQ_SEALED_ONLINE_ACK_TIMEOUT_MS;
+    process.env.TYO_MQ_SEALED_ONLINE_ACK_TIMEOUT_MS = String(ms);
+    return { restore: () => { if (prev === undefined) delete process.env.TYO_MQ_SEALED_ONLINE_ACK_TIMEOUT_MS; else process.env.TYO_MQ_SEALED_ONLINE_ACK_TIMEOUT_MS = prev; } };
 }
 function clientOpts(port) { return { host: '127.0.0.1', port: port, protocol: 'http' }; }
 function realmOptions(pushCfg) {
