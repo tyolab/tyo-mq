@@ -9,8 +9,9 @@
  * instead of by editing SQLite on a production box.
  *
  * Usage:
- *   node scripts/admin-command.js <command> [--json '{"realm":"…",…}'] \
+ *   node scripts/admin-command.js <command> [--json '{"realm":"…",…}' | --json-file PATH | --json -] \
  *        [-h host] [-p port] [-s protocol] [--env-file .env] [--token-env TYO_MQ_ADMIN_TOKEN]
+ *   Bodies that carry a secret should come from --json-file (0600) or stdin, never argv.
  *
  * Examples:
  *   node scripts/admin-command.js get
@@ -44,11 +45,17 @@ for (var i = 3; i < process.argv.length; i++) {
         case '--env-file': envFile = process.argv[++i]; break;
         case '--token-env': tokenEnv = process.argv[++i]; break;
         case '--json': json = process.argv[++i]; break;
+        // A body that carries a secret (add_management_token, set_realm_key,
+        // set_realm_manager_key) must not be a command-line argument — argv is
+        // visible in `ps` and lands in shell history. Read it from a 0600 file
+        // (--json-file PATH) or from stdin (--json -) instead.
+        case '--json-file': json = require('fs').readFileSync(process.argv[++i], 'utf8'); break;
         default:
             console.error('Unknown option: ' + process.argv[i]);
             process.exit(1);
     }
 }
+if (json === '-') json = require('fs').readFileSync(0, 'utf8');
 
 var body = { command: command };
 if (json) {
