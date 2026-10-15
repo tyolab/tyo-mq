@@ -40,6 +40,7 @@ function cleanup(file) {
 }
 function serverOptions(storeFile, realms) {
     return {
+        http_api: { enabled: true },   // POST /api/realms is opt-in; without it the harness http server has no request listener
         auth: {
             enabled: true,
             tokens: [{ token: ADMIN_TOKEN, realm: '*', role: 'admin' }],
@@ -235,6 +236,96 @@ test('per-realm JWTs signed with the previous manager key keep verifying inside 
         assert.strictEqual(await authenticate(srv.port, { token: tokenWith('mk-1') }), 'fail');
         assert.strictEqual(await authenticate(srv.port, { token: tokenWith('mk-2') }), 'fail', 'no grace → previous dropped');
         assert.strictEqual(await authenticate(srv.port, { token: tokenWith('mk-3') }), 'ok');
+    } finally { await srv.close(); cleanup(file); }
+});
+
+test('set_realm_push is realm-scoped: a realm manager key may set its own realm\'s push policy, and only its own', async () => {
+    const file = tmpDb();
+    const srv = await startServer(serverOptions(file, { beta: { required: true, manager_key: 'mk-beta' }, other: { required: true, manager_key: 'mk-other' } }));
+    try {
+        const own = await command(srv.port, { command: 'set_realm_push', realm: 'beta', default_wake: 'alert', alert: { title: 'Beta', body: 'New message' } }, 'mk-beta');
+        assert.strictEqual(own.ok, true, JSON.stringify(own));
+        assert.strictEqual(srv.server.authOptions.realms.beta.push.default_wake, 'alert');
+        assert.strictEqual(srv.server.authOptions.realms.beta.push.alert.title, 'Beta');
+
+        const foreign = await command(srv.port, { command: 'set_realm_push', realm: 'other', default_wake: 'alert' }, 'mk-beta');
+        assert.strictEqual(foreign.ok, false, 'a realm manager key cannot touch another realm');
+        assert.strictEqual(srv.server.authOptions.realms.other.push, undefined);
+    } finally { await srv.close(); cleanup(file); }
+});
+
+// ── management tokens hashed at rest ───────────────────────────────────────
+
+function postRealm(port, bearer, body) {
+    return new Promise((resolve, reject) => {
+        const req = require('http').request({
+            host: '127.0.0.1', port, path: '/api/realms', method: 'POST',
+            headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + bearer },
+        }, (res) => { let c = ''; res.on('data', (d) => { c += d; }); res.on('end', () => resolve({ status: res.statusCode, body: c })); });
+        req.on('error', reject);
+        req.end(JSON.stringify(body));
+    });
+}
+function storedManagementTokens(file) {
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(file, { readOnly: true });
+    const rows = db.prepare('SELECT token AS key, entry FROM management_tokens').all().map((r) => ({ key: r.key, entry: JSON.parse(r.entry) }));
+    db.close();
+    return rows;
+}
+const sha256 = (s) => require('crypto').createHash('sha256').update(s).digest('hex');
+
+test('a management token is stored only as token_hash, still authorises POST /api/realms, and get shows the hash only', async () => {
+    const file = tmpDb();
+    const srv = await startServer(serverOptions(file));
+    try {
+        const added = await command(srv.port, { command: 'add_management_token', token: 'mgmt-raw-1', realm_prefix: 'apps:hilia:' });
+        assert.strictEqual(added.ok, true, JSON.stringify(added));
+        await delay(100);
+        const rows = storedManagementTokens(file);
+        assert.strictEqual(rows.length, 1);
+        assert.strictEqual(rows[0].key, sha256('mgmt-raw-1'), 'row keyed by the hash');
+        assert.strictEqual(rows[0].entry.token, undefined, 'raw bearer never reaches disk');
+        assert.strictEqual(rows[0].entry.token_hash, sha256('mgmt-raw-1'));
+        assert.strictEqual(JSON.stringify(srv.server.authOptions.management_tokens).indexOf('mgmt-raw-1'), -1, 'raw bearer not held in memory either');
+
+        const ok = await postRealm(srv.port, 'mgmt-raw-1', { realm: 'apps:hilia:rooms', manager_key: 'mk-rooms' });
+        assert.strictEqual(ok.status, 200, ok.body);
+        const outside = await postRealm(srv.port, 'mgmt-raw-1', { realm: 'apps:other:x', manager_key: 'mk' });
+        assert.strictEqual(outside.status, 403);
+        const wrong = await postRealm(srv.port, 'mgmt-raw-X', { realm: 'apps:hilia:rooms2', manager_key: 'mk' });
+        assert.strictEqual(wrong.status, 401);
+
+        const got = await command(srv.port, { command: 'get' });
+        assert.strictEqual(got.settings.management_tokens.length, 1);
+        assert.strictEqual(got.settings.management_tokens[0].token_hash, sha256('mgmt-raw-1'));
+        assert.strictEqual(got.settings.management_tokens[0].token, undefined);
+
+        // revoke by the hash the operator sees
+        const rev = await command(srv.port, { command: 'revoke_management_token', token_hash: sha256('mgmt-raw-1') });
+        assert.strictEqual(rev.ok, true);
+        // With no management tokens left the endpoint hides itself (404); with
+        // others still configured a revoked bearer gets 401. Either way: refused.
+        const afterRevoke = (await postRealm(srv.port, 'mgmt-raw-1', { realm: 'apps:hilia:rooms3', manager_key: 'mk' })).status;
+        assert.ok(afterRevoke === 401 || afterRevoke === 404, 'revoked bearer refused, got ' + afterRevoke);
+    } finally { await srv.close(); cleanup(file); }
+});
+
+test('a management token already stored RAW is migrated to token_hash on boot and keeps working', async () => {
+    const file = tmpDb();
+    const seed = new AuthStore({ filename: file });
+    seed.sync({ realms: {}, tokens: [], management_tokens: [{ token: 'legacy-mgmt', realm_prefix: 'apps:legacy:' }] });
+    try { seed.close(); } catch (e) {}
+    assert.ok(storedManagementTokens(file).some((r) => r.entry.token === 'legacy-mgmt'), 'precondition: raw on disk');
+
+    const srv = await startServer(serverOptions(file));
+    try {
+        await delay(150);
+        const rows = storedManagementTokens(file);
+        assert.ok(!rows.some((r) => r.entry.token !== undefined), 'no raw bearer left on disk');
+        assert.ok(rows.some((r) => r.entry.token_hash === sha256('legacy-mgmt') && r.entry.realm_prefix === 'apps:legacy:'), 'migrated entry present');
+        const ok = await postRealm(srv.port, 'legacy-mgmt', { realm: 'apps:legacy:r1', manager_key: 'mk' });
+        assert.strictEqual(ok.status, 200, ok.body);
     } finally { await srv.close(); cleanup(file); }
 });
 

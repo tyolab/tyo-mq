@@ -424,6 +424,10 @@ never printed).
 **Secrets at rest and rotation.** A realm's pre-shared key is stored only as a
 hash (`key_hash`, SHA-256) — the raw value never reaches the settings file or the
 auth store, and any raw key already there is migrated one-way on the next load.
+Prefix-scoped management tokens are held the same way (`token_hash`; the bearer
+is hashed on presentation, and `revoke_management_token` already takes that
+hash). A realm's `manager_key` stays raw because it is an HMAC secret the broker
+must hold to verify proofs — for it, the protection is rotation, below.
 Rotate either realm secret without a flag day by passing a grace window:
 `set_realm_key {realm, key, grace: "24h"}` or `set_realm_manager_key {realm,
 manager_key, grace: "24h"}` (also `POST /api/realms` with `grace`). The previous
