@@ -421,6 +421,17 @@ signed command can also be sent from a shell with
 `node scripts/admin-command.js <command> --json '{…}'` (admin token from `.env`,
 never printed).
 
+**Secrets at rest and rotation.** A realm's pre-shared key is stored only as a
+hash (`key_hash`, SHA-256) — the raw value never reaches the settings file or the
+auth store, and any raw key already there is migrated one-way on the next load.
+Rotate either realm secret without a flag day by passing a grace window:
+`set_realm_key {realm, key, grace: "24h"}` or `set_realm_manager_key {realm,
+manager_key, grace: "24h"}` (also `POST /api/realms` with `grace`). The previous
+secret keeps working until the window lapses, every use of it is logged so you
+can watch it fall to zero, and it is dropped at the deadline or on the next
+rotation. `set_realm_key {realm, require_key: true}` with no key makes a realm
+tokens-only: token-less consumers are always refused.
+
 **Push wakes.** When a message is queued for an offline identity that has a
 registered push endpoint, the broker sends a contentless wake. The *sender*
 chooses the kind per message with a top-level `wake` field on `PRODUCE` and
