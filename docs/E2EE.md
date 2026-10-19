@@ -109,6 +109,13 @@ discovery, à la STARTTLS.
 - `opportunistic`: encrypt when the recipient's key is known; else cleartext.
 - `required`: refuse to produce/accept an unencrypted message on the realm.
 
+`required` is an **honour-system declaration, not verification**: the broker
+refuses a frame with no `enc` field and routes any frame that has one — it
+cannot verify encryption it cannot read. A client that does its own
+cryptography (the Hilia apps carry Signal ciphertext) satisfies the realm with
+a bare `enc: true`. The policy is therefore where a *deployment* says "nothing
+cleartext here", never where an application's privacy guarantee comes from.
+
 ## Client API
 
 Additive; existing calls unchanged.
@@ -122,10 +129,22 @@ When `encrypt`/`encryptTo` is set, the library resolves the recipient key via th
 `KeyResolver`, seals per the suite, and sends the `enc` envelope. Without a
 resolvable key it applies the realm policy (skip / throw).
 
-**Consume:** automatic. When a delivered message carries `enc`, the library opens
-it with the local private key for `enc.kid` and passes **plaintext** to the
-existing `onConsume(message, from, ack)` handler. Undecryptable ⇒ per-policy
-(drop + warn, or surface an error).
+**Consume:** automatic. When a delivered message carries **this suite's
+envelope** (`enc.alg === "ecdh-es-p256-a256gcm"` with `epk` and `iv`), the
+library opens it with the local private key for `enc.kid` and passes
+**plaintext** to the existing `onConsume(message, from, ack)` handler.
+Undecryptable ⇒ drop + warn — ciphertext is never handed to the application.
+Any *other* `enc` value — a bare `true`, or another scheme's descriptor — is not
+the library's to decrypt: the payload is delivered untouched and the raw frame
+(with `enc`) is the handler's 4th argument, `onConsume(message, from, ack, raw)`.
+(tyo-mq-client < 0.2.1 dropped every `enc`-carrying frame it could not open.)
+
+**Browsers:** the browser bundle uses `lib/e2ee-browser.js`, the same suite on
+WebCrypto, byte-for-byte compatible with Node (selected via the package's
+`browser` field — Node's `crypto.hkdfSync`/`createECDH` do not exist in the
+browserify shim). WebCrypto is asynchronous, so in a browser `produce()` returns
+a Promise when it encrypts, and a private key is a `CryptoKey`, a JWK, or
+`{privateKey, publicKey}` (a bare scalar cannot be imported without its point).
 
 **Pluggable interfaces (the app implements the top one):**
 ```

@@ -446,7 +446,12 @@ default, set with `set_realm_push {realm, default_wake, alert: {title, body,
 collapse_id, thread_id, extra}}`; the alert copy is realm configuration, never
 message content, and the broker hardcodes no product name. Wakes are coalesced
 per identity for a few seconds and the window resets whenever the identity
-reconnects, so every offline episode gets its own wake.
+reconnects, so every offline episode gets its own wake. `PUSH_WAKE_STATS`
+(any authenticated socket, its own realm) returns a since-boot tally of wake
+decisions per recipient — alert / silent / suppressed, sent vs. skipped and why —
+plus a pair-free per-sender count of suppressed wakes, so a client that is
+accidentally marking real messages `wake: false` shows up as a spike; the same
+counts are exported as `tyo_mq_push_wake_total{realm,kind,outcome}`.
 
 Realms come in two forms: **permanent** (the default) and **ephemeral /
 disposable** — created with `add_realm {ephemeral: true, ttl: '2h'}` and

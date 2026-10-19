@@ -276,6 +276,31 @@ test('per-message hint overrides the realm default in both directions, and wake:
         await delay(150);
         const drained = await call(bob, 'SEALED_SUBSCRIBE', { identity: 'bob' });
         assert.strictEqual(drained.ok, true);
+
+        // and every decision was tallied: per recipient, and pair-free per sender
+        const stats = await call(bob, 'PUSH_WAKE_STATS', {});
+        assert.strictEqual(stats.ok, true);
+        assert.strictEqual(stats.realm, 'default');
+        assert.ok(!Number.isNaN(Date.parse(stats.since)));
+        const b = stats.identities.bob;
+        assert.deepStrictEqual({ total: b.total, alert: b.alert, silent: b.silent, suppressed: b.suppressed, sent: b.sent },
+            { total: 3, alert: 1, silent: 1, suppressed: 1, sent: 2 });
+        assert.strictEqual(b.skipped.suppressed, 1, 'the wake:false send is counted as a suppressed skip');
+        assert.ok(b.last_suppressed_at && b.last_at, 'timestamps recorded');
+        // Three anonymous senders. With tyo-mq-client < 0.2.1 their PRODUCER frame
+        // was refused (empty name) so they are tallied under the explicit
+        // '(unregistered)' bucket; with a fixed client each registers its minted
+        // ANONYMOUS-<uuid>. Either way every send is counted and exactly one
+        // suppressed its wake — assert the totals, not the bucket names.
+        const senders = Object.keys(stats.by_sender);
+        assert.ok(senders.length >= 1, JSON.stringify(stats.by_sender));
+        assert.ok(senders.every((s) => s === '(unregistered)' || /^ANONYMOUS-/.test(s)), 'buckets: ' + senders.join(','));
+        assert.strictEqual(senders.reduce((n, s) => n + stats.by_sender[s].total, 0), 3, 'every send tallied');
+        assert.strictEqual(senders.reduce((n, s) => n + stats.by_sender[s].suppressed, 0), 1, 'exactly one send suppressed its wake');
+        assert.ok(!JSON.stringify(stats).includes('tok-bob'), 'no token material in the stats');
+        const only = await call(bob, 'PUSH_WAKE_STATS', { identity: 'bob' });
+        assert.strictEqual(only.identities.bob.total, 3);
+        assert.strictEqual(only.by_sender, undefined, 'single-identity form carries no sender tally');
         bob.disconnect();
     } finally { await srv.close(); penv.restore(); env.restore(); }
 });
@@ -305,6 +330,13 @@ test('plain pub/sub honours options.wake:false (queued, no wake) and the realm d
         assert.strictEqual(nt.sent.length, 1);
         assert.strictEqual(nt.sent[0].payload.kind, 'alert', 'realm default applies to the plain path too');
         assert.strictEqual(nt.sent[0].alert.title, 'Ops');
+
+        // A REGISTERED sender is tallied under its own name on the plain path.
+        const stats = await call(pubber, 'PUSH_WAKE_STATS', {});
+        assert.strictEqual(stats.ok, true);
+        assert.deepStrictEqual({ total: stats.identities.carol.total, suppressed: stats.identities.carol.suppressed, alert: stats.identities.carol.alert, sent: stats.identities.carol.sent },
+            { total: 2, suppressed: 1, alert: 1, sent: 1 });
+        assert.deepStrictEqual({ total: stats.by_sender.pubber.total, suppressed: stats.by_sender.pubber.suppressed }, { total: 2, suppressed: 1 });
         pubber.disconnect();
     } finally { await srv.close(); penv.restore(); }
 });
