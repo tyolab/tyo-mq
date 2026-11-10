@@ -248,4 +248,43 @@ test('malformed and legacy string forms ack honestly and never throw', async () 
     }
 });
 
+test('SUBSCRIPTIONS diagnostic shows the live routing table for the realm and reflects an UNSUBSCRIBE', async () => {
+    const srv = await startServer();
+    const consumer = await connect(srv.port);
+    try {
+        consumer.emit('CONSUMER', { name: 'chat-diag' });
+        consumer.emit('SUBSCRIBE', { event: 'e2ee.inbox', producer: 'TYO-MQ-ALL', consumer: 'chat-diag' });
+        consumer.emit('SUBSCRIBE', { event: 'hilia-link-xyz-up', producer: 'TYO-MQ-ALL', consumer: 'chat-diag', mode: 'topic' });
+        await delay(200);
+
+        let diag = await emitAck(consumer, 'SUBSCRIPTIONS', { consumer: 'chat-diag' });
+        assert.strictEqual(diag.ok, true);
+        assert.strictEqual(diag.count, 2);
+        const me = diag.consumers['chat-diag'];
+        assert.strictEqual(me.online, true);
+        assert.deepStrictEqual(me.linked_producers, ['TYO-MQ-ALL']);
+        const events = me.subscriptions.map(s => s.event).sort();
+        assert.deepStrictEqual(events, ['tyo-mq-all-e2ee.inbox', 'tyo-mq-all-hilia-link-xyz-up']);
+        const link = me.subscriptions.find(s => s.event === 'tyo-mq-all-hilia-link-xyz-up');
+        assert.strictEqual(link.mode, 'topic');
+        assert.strictEqual(link.topic_pattern, 'hilia-link-xyz-up');
+
+        // Filter by event substring.
+        diag = await emitAck(consumer, 'SUBSCRIPTIONS', { event: 'hilia-link' });
+        assert.strictEqual(diag.count, 1);
+
+        await emitAck(consumer, 'UNSUBSCRIBE', { event: 'hilia-link-xyz-up', producer: 'TYO-MQ-ALL', consumer: 'chat-diag' });
+        diag = await emitAck(consumer, 'SUBSCRIPTIONS', {});
+        assert.strictEqual(diag.count, 1);
+        assert.deepStrictEqual(diag.consumers['chat-diag'].subscriptions.map(s => s.event), ['tyo-mq-all-e2ee.inbox']);
+        assert.deepStrictEqual(diag.consumers['chat-diag'].linked_producers, ['TYO-MQ-ALL'], 'wildcard link kept for the inbox');
+
+        // Never anything but metadata.
+        assert.ok(!JSON.stringify(diag).includes('message'));
+    } finally {
+        consumer.disconnect();
+        await srv.close();
+    }
+});
+
 run();
