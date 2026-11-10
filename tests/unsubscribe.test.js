@@ -137,6 +137,60 @@ test('unsubscribing one event keeps a sibling event from the same producer route
     }
 });
 
+test("Hilia's shape: two events from the wildcard producer '*'; unsubscribing one leaves the other delivering AND restorable across a reconnect", async () => {
+    // e2ee.inbox and hilia-link-<id>-up are both subscribed from TYO-MQ-ALL.
+    // A naive UNSUBSCRIBE that dropped '*' from the consumer's subscribeTos
+    // on releasing the link topic would silently kill inbox delivery after
+    // the next re-identify — worse than the leak being fixed.
+    const srv = await startServer();
+    const producer = await connect(srv.port);
+    let consumer = await connect(srv.port);
+    try {
+        producer.emit('PRODUCER', { name: 'chat-peer' });
+        consumer.emit('CONSUMER', { name: 'chat-self' });
+        consumer.emit('SUBSCRIBE', { event: 'e2ee.inbox', producer: 'TYO-MQ-ALL', consumer: 'chat-self' });
+        consumer.emit('SUBSCRIBE', { event: 'hilia-link-abc-up', producer: 'TYO-MQ-ALL', consumer: 'chat-self', mode: 'topic' });
+        await delay(200);
+
+        const inboxEvent = 'CONSUME-tyo-mq-all-e2ee.inbox';
+        const linkEvent = 'CONSUME-tyo-mq-all-hilia-link-abc-up';
+        let inbox = countReceived(consumer, inboxEvent);
+        let link = countReceived(consumer, linkEvent);
+        producer.emit('PRODUCE', { event: 'e2ee.inbox', message: { n: 1 }, from: 'chat-peer' });
+        producer.emit('PRODUCE', { event: 'hilia-link-abc-up', message: { n: 1 }, from: 'chat-peer' });
+        await delay(300);
+        assert.strictEqual(inbox.n, 1); assert.strictEqual(link.n, 1);
+
+        // Release the link topic (the extra fields the Java client sends ride along harmlessly).
+        const ack = await emitAck(consumer, 'UNSUBSCRIBE', { event: 'hilia-link-abc-up', producer: 'TYO-MQ-ALL', consumer: 'chat-self', consumer_id: 'chat-self', mode: 'topic' });
+        assert.strictEqual(ack.ok, true);
+
+        producer.emit('PRODUCE', { event: 'e2ee.inbox', message: { n: 2 }, from: 'chat-peer' });
+        producer.emit('PRODUCE', { event: 'hilia-link-abc-up', message: { n: 2 }, from: 'chat-peer' });
+        await delay(300);
+        assert.strictEqual(inbox.n, 2, 'inbox still delivers on the live socket');
+        assert.strictEqual(link.n, 1, 'link topic is released');
+
+        // Re-identify on a fresh socket WITHOUT re-subscribing: the broker's
+        // restore must still carry the wildcard link for the inbox.
+        consumer.disconnect();
+        await delay(100);
+        consumer = await connect(srv.port);
+        consumer.emit('CONSUMER', { name: 'chat-self' });
+        await delay(200);
+        inbox = countReceived(consumer, inboxEvent);
+        link = countReceived(consumer, linkEvent);
+        producer.emit('PRODUCE', { event: 'e2ee.inbox', message: { n: 3 }, from: 'chat-peer' });
+        producer.emit('PRODUCE', { event: 'hilia-link-abc-up', message: { n: 3 }, from: 'chat-peer' });
+        await delay(300);
+        assert.strictEqual(inbox.n, 1, 'inbox is restored after reconnect — the wildcard link survived the unsubscribe');
+        assert.strictEqual(link.n, 0, 'the released topic stays released after reconnect');
+    } finally {
+        producer.disconnect(); consumer.disconnect();
+        await srv.close();
+    }
+});
+
 test('UNSUBSCRIBE frees the limiter slot (max_subscriptions_per_socket)', async () => {
     const srv = await startServer({ limits: { max_subscriptions_per_socket: 1 } });
     const producer = await connect(srv.port);
