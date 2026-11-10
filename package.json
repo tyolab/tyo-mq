@@ -1,6 +1,6 @@
 {
   "name": "tyo-mq",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Distributed Message Pub/Sub Service with socket.io",
   "main": "index.js",
   "bin": {
