@@ -33,6 +33,14 @@ function startServer(options) {
             pushStoreFile = path.join(os.tmpdir(), 'tyo-mq-test-push-' + process.pid + '-' + Math.random().toString(36).slice(2) + '.sqlite');
             opts.push_store = { filename: pushStoreFile };
         }
+        // Same for the durable subscription store (tyo-mq.subscriptions.sqlite
+        // in the cwd by default): a stale routing table from an earlier test
+        // would be hydrated into the next broker.
+        let subStoreFile = null;
+        if (opts.subscription_store === undefined) {
+            subStoreFile = path.join(os.tmpdir(), 'tyo-mq-test-subs-' + process.pid + '-' + Math.random().toString(36).slice(2) + '.sqlite');
+            opts.subscription_store = { filename: subStoreFile };
+        }
         const mqServer = new TyoMQServer(opts);
         const noop = () => {};
         mqServer.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop };
@@ -47,6 +55,10 @@ function startServer(options) {
                     io.close(() => httpServer.close(() => {
                         if (pushStoreFile)
                             for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(pushStoreFile + suffix); } catch (e) {} }
+                        if (subStoreFile) {
+                            try { mqServer._subscriptionStore && mqServer._subscriptionStore.close(); } catch (e) {}
+                            for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(subStoreFile + suffix); } catch (e) {} }
+                        }
                         res();
                     }));
                 }),
