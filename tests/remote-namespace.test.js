@@ -14,7 +14,7 @@ const ioClient = require('socket.io-client');
 const PORT = 17360;
 const noop = () => {};
 
-const server = new TyoMQServer({ port: PORT });
+const server = new TyoMQServer({ subscription_store: false,  port: PORT });
 server.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop };
 server.start(PORT);
 
@@ -372,7 +372,7 @@ test('reserved events are never relayed (auth_ok cannot be forged)', async () =>
 
 test('relay config: allow-list mode and per-event disable via options', async () => {
     const strictPort = PORT + 2;
-    const strictServer = new TyoMQServer({
+    const strictServer = new TyoMQServer({ subscription_store: false, 
         port: strictPort,
         remote: {
             relay_unlisted: 'off',
@@ -459,7 +459,7 @@ test('authenticated main namespace can request a remote ticket', async () => {
 
 test('auth-enabled main namespace issues remote tickets only after authentication', async () => {
     const authPort = PORT + 1;
-    const authServer = new TyoMQServer({
+    const authServer = new TyoMQServer({ subscription_store: false, 
         port: authPort,
         auth: {
             enabled: true,

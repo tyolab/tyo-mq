@@ -17,7 +17,7 @@ const TEST_PORT = 17353;
 
 // ─── server bootstrap ────────────────────────────────────────────────────────
 
-const server = new TyoMQServer({ port: TEST_PORT });
+const server = new TyoMQServer({ subscription_store: false,  port: TEST_PORT });
 const noop = () => {};
 server.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop }; // silence during tests
 server.start(TEST_PORT);
@@ -170,7 +170,7 @@ test('unnamed consumers get unique anonymous names and coexist', async () => {
  */
 test('anonymous consumers are rejected when the realm disallows them', async () => {
     const DENY_PORT = 17355;
-    const denyServer = new TyoMQServer({
+    const denyServer = new TyoMQServer({ subscription_store: false, 
         port: DENY_PORT,
         idle_eviction: { enabled: false },
         auth: { realms: { 'default': { allow_anonymous: false } } }
@@ -208,7 +208,7 @@ test('anonymous consumers are rejected when the realm disallows them', async () 
 test('idle eviction removes offline consumers after the TTL', async () => {
     const EV_PORT = 17354;
     // Eviction is opt-in (off by default); enable it explicitly for this test.
-    const evServer = new TyoMQServer({ port: EV_PORT, idle_eviction: { enabled: true, ttl_ms: 50, interval_ms: 10000 } });
+    const evServer = new TyoMQServer({ subscription_store: false,  port: EV_PORT, idle_eviction: { enabled: true, ttl_ms: 50, interval_ms: 10000 } });
     evServer.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop };
     evServer.start(EV_PORT);
 
@@ -251,7 +251,7 @@ test('idle eviction removes offline consumers after the TTL', async () => {
  */
 test('idle eviction never evicts a consumer with an active subscription', async () => {
     const EV_PORT = 17362;
-    const evServer = new TyoMQServer({ port: EV_PORT, idle_eviction: { enabled: true, ttl_ms: 50, interval_ms: 10000 } });
+    const evServer = new TyoMQServer({ subscription_store: false,  port: EV_PORT, idle_eviction: { enabled: true, ttl_ms: 50, interval_ms: 10000 } });
     evServer.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop };
     evServer.start(EV_PORT);
 
@@ -294,7 +294,7 @@ test('idle eviction never evicts a consumer with an active subscription', async 
  */
 test('idle eviction is disabled by default (opt-in)', async () => {
     const EV_PORT = 17363;
-    const evServer = new TyoMQServer({ port: EV_PORT }); // no idle_eviction config
+    const evServer = new TyoMQServer({ subscription_store: false,  port: EV_PORT }); // no idle_eviction config
     evServer.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop };
     evServer.start(EV_PORT);
     const client = new Factory({ host: '127.0.0.1', port: EV_PORT, protocol: 'http' });

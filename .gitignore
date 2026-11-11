@@ -12,3 +12,6 @@ client_secret_495151116594-s7n28kvhb635t858nhmr0ocvb7srdoo7.apps.googleuserconte
 docs/superpowers/
 docs/specs/
 docs/plans/
+tyo-mq.subscriptions.sqlite
+tyo-mq.subscriptions.sqlite-wal
+tyo-mq.subscriptions.sqlite-shm

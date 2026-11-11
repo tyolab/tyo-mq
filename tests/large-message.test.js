@@ -28,7 +28,7 @@ const TEST_PORT = 17354; // separate port so it doesn't clash with other test su
 // ─── bootstrap ───────────────────────────────────────────────────────────────
 
 const noop = () => {};
-const server = new TyoMQServer({ port: TEST_PORT });
+const server = new TyoMQServer({ subscription_store: false,  port: TEST_PORT });
 server.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop };
 server.start(TEST_PORT);
 
