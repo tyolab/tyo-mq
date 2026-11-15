@@ -72,15 +72,26 @@ if (!token) {
 }
 
 // Never echo secrets that a `get` / realm listing may carry in the ack.
+// Redact by SHAPE as well as by field name: on 2026-11-15 the ack's settings
+// dump carried `persistence.storage_options.url` = redis://:<password>@host
+// and the name-based rule let it straight through into a transcript. Any
+// string holding URL credentials (scheme://user:pass@) is masked wherever
+// it sits; password-ish field names join the key/token/secret rule.
+var SECRET_KEY_RE = /(^|_)(key|token|secret|password|passwd|pwd|credential|credentials|private_key|api_key)s?$/i;
+var URL_CRED_RE = /^([a-z][a-z0-9+.-]*:\/\/)([^/@\s]*)@/i;
+function redactString(v) {
+    return URL_CRED_RE.test(v) ? v.replace(URL_CRED_RE, '$1<redacted>@') : v;
+}
 function redact(value) {
     if (Array.isArray(value)) return value.map(redact);
     if (value && typeof value === 'object') {
         var out = {};
         Object.keys(value).forEach(function (k) {
-            out[k] = /(^|_)(key|token|secret)s?$/i.test(k) ? '<redacted>' : redact(value[k]);
+            out[k] = SECRET_KEY_RE.test(k) ? '<redacted>' : redact(value[k]);
         });
         return out;
     }
+    if (typeof value === 'string') return redactString(value);
     return value;
 }
 
