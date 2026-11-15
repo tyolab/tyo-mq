@@ -41,6 +41,16 @@ function startServer(options) {
             subStoreFile = path.join(os.tmpdir(), 'tyo-mq-test-subs-' + process.pid + '-' + Math.random().toString(36).slice(2) + '.sqlite');
             opts.subscription_store = { filename: subStoreFile };
         }
+        // And the TYO Notify stores (claims + phone-push registry) — both default
+        // to files in the cwd, so a device registered by an earlier test file
+        // would be hydrated and pushed to by the next broker.
+        let notifyFiles = [];
+        if (opts.notify_store === undefined || !opts.notify_store.push_filename) {
+            const base = path.join(os.tmpdir(), 'tyo-mq-test-notify-' + process.pid + '-' + Math.random().toString(36).slice(2));
+            opts.notify_store = Object.assign({}, opts.notify_store || {});
+            if (!opts.notify_store.filename) { opts.notify_store.filename = base + '-claims.sqlite'; notifyFiles.push(opts.notify_store.filename); }
+            opts.notify_store.push_filename = base + '-push.sqlite'; notifyFiles.push(opts.notify_store.push_filename);
+        }
         const mqServer = new TyoMQServer(opts);
         const noop = () => {};
         mqServer.logger = { critical: noop, error: noop, warn: noop, output: noop, log: noop, info: noop, debug: noop, trace: noop };
@@ -55,6 +65,8 @@ function startServer(options) {
                     io.close(() => httpServer.close(() => {
                         if (pushStoreFile)
                             for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(pushStoreFile + suffix); } catch (e) {} }
+                        for (const f of notifyFiles)
+                            for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(f + suffix); } catch (e) {} }
                         if (subStoreFile) {
                             try { mqServer._subscriptionStore && mqServer._subscriptionStore.close(); } catch (e) {}
                             for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(subStoreFile + suffix); } catch (e) {} }
