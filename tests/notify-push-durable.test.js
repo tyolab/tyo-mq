@@ -101,6 +101,38 @@ test('a stale (past-TTL) row is not hydrated', () => {
     }
 });
 
+test('a successful push refreshes the stored timestamp, so an actively-pushed device survives the idle TTL across a restart', () => {
+    const file = tmpDb();
+    try {
+        const DAY = 24 * 3600 * 1000, TTL = 30 * DAY;
+        const store1 = new NotifyPushStore({ filename: file });
+        const reg1 = new push.TokenRegistry({ ttlMs: TTL, store: store1 });
+        const registeredAt = Date.now() - 40 * DAY;           // registered 40 days ago…
+        reg1.register(REALM, TOPIC, Object.assign({}, EP, { now: registeredAt }));
+        reg1.markOk(REALM, TOPIC, EP, Date.now() - 1 * DAY); // …but pushed to yesterday
+        store1.close();
+
+        // Restart: hydration must keep it (last proof of life is 1 day old, not 40).
+        const store2 = new NotifyPushStore({ filename: file });
+        const reg2 = new push.TokenRegistry({ ttlMs: TTL, store: store2 });
+        assert.strictEqual(reg2.list(REALM, TOPIC).length, 1, 'actively-pushed device survives the restart');
+        store2.close();
+
+        // Control: a device registered 40 days ago with NO successful push is dropped.
+        const file2 = tmpDb();
+        try {
+            const s3 = new NotifyPushStore({ filename: file2 });
+            const r3 = new push.TokenRegistry({ ttlMs: TTL, store: s3 });
+            r3.register(REALM, 'dead-topic', Object.assign({}, EP, { now: registeredAt }));
+            s3.close();
+            const s4 = new NotifyPushStore({ filename: file2 });
+            const r4 = new push.TokenRegistry({ ttlMs: TTL, store: s4 });
+            assert.strictEqual(r4.list(REALM, 'dead-topic').length, 0, 'never-pushed stale device is still pruned');
+            s4.close();
+        } finally { cleanup(file2); }
+    } finally { cleanup(file); }
+});
+
 test('evicting an over-cap identity also removes it from the store', () => {
     const file = tmpDb();
     try {
