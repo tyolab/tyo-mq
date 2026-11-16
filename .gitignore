@@ -15,3 +15,7 @@ docs/plans/
 tyo-mq.subscriptions.sqlite
 tyo-mq.subscriptions.sqlite-wal
 tyo-mq.subscriptions.sqlite-shm
+
+# Playwright MCP scratch output — page snapshots capture form field VALUES,
+# including passwords typed into a login form. Never let these into a commit.
+.playwright-mcp/
