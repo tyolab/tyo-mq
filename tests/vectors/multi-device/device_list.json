@@ -1,0 +1,17 @@
+{
+  "description": "Signed device list (contract §1). sig = XEdDSA(identity, signedPrefix || record). TEST KEY ONLY.",
+  "identityKey": "BeSW9u6F/Fu9/GcVCF5GFIYEXQmtPeBUiV4T/WL1JFI1",
+  "identityKeyPair": "CiEF5Jb27oX8W738ZxUIXkYUhgRdCa094FSJXhP9YvUkUjUSIGAYMNNkGmj5SmkNzCXR9LDayUgyWsGPbdMlZDcXNfNs",
+  "negative": {
+    "nonCanonicalRecord": "{ \"account\":\"chat-0123456789abcdef\",\"devices\":[{\"id\":1,\"reg\":12345},{\"added\":1794000000000,\"id\":2,\"label\":\"Browser\",\"reg\":678}],\"secrets\":\"phone\",\"seq\":7,\"v\":1}",
+    "signedByOtherKey": {
+      "otherIdentityKey": "BYlEKXgaMAC4dlu6o+SpFzrjynDWxODqrmfCL+SIRAF5",
+      "wire": "{\"record\":\"{\\\"account\\\":\\\"chat-0123456789abcdef\\\",\\\"devices\\\":[{\\\"id\\\":1,\\\"reg\\\":12345},{\\\"added\\\":1794000000000,\\\"id\\\":2,\\\"label\\\":\\\"Browser\\\",\\\"reg\\\":678}],\\\"secrets\\\":\\\"phone\\\",\\\"seq\\\":7,\\\"v\\\":1}\",\"sig\":\"kJRhJOvOBvJjfsn1lHgQ0usNUo76Dbto9cAISPSZGqP4TdTDpmogQJNUkbdIP9JMf/v2MUgQdMKrDEU6dBArgg==\"}"
+    }
+  },
+  "record": "{\"account\":\"chat-0123456789abcdef\",\"devices\":[{\"id\":1,\"reg\":12345},{\"added\":1794000000000,\"id\":2,\"label\":\"Browser\",\"reg\":678}],\"secrets\":\"phone\",\"seq\":7,\"v\":1}",
+  "seq8RemovingDevice2": "{\"record\":\"{\\\"account\\\":\\\"chat-0123456789abcdef\\\",\\\"devices\\\":[{\\\"id\\\":1,\\\"reg\\\":12345}],\\\"secrets\\\":\\\"phone\\\",\\\"seq\\\":8,\\\"v\\\":1}\",\"sig\":\"hvwTuI+DshUQ8/S1XR/RriibZiimJ9Ialaz3o7d0pKNo1YOZFmagoIEmd7DEu7JF8S4POJ/F6broDQmlkcuCgA==\"}",
+  "sig": "FSBMl/ZRnfIaSvacuS319lampYeiKrcaqF2KbjdzKmGs7C9vFcGLhq9b48zs4J3oq0Ggl6u1GKjPWnu9FCzdjg==",
+  "signedPrefix": "tyo-devlist-v1\n",
+  "wire": "{\"record\":\"{\\\"account\\\":\\\"chat-0123456789abcdef\\\",\\\"devices\\\":[{\\\"id\\\":1,\\\"reg\\\":12345},{\\\"added\\\":1794000000000,\\\"id\\\":2,\\\"label\\\":\\\"Browser\\\",\\\"reg\\\":678}],\\\"secrets\\\":\\\"phone\\\",\\\"seq\\\":7,\\\"v\\\":1}\",\"sig\":\"FSBMl/ZRnfIaSvacuS319lampYeiKrcaqF2KbjdzKmGs7C9vFcGLhq9b48zs4J3oq0Ggl6u1GKjPWnu9FCzdjg==\"}"
+}

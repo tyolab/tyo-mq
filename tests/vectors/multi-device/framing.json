@@ -1,0 +1,64 @@
+{
+  "description": "Envelope framing inside the encryption (contract §3): plaintext = \"\\u001fTYC2\\n\" + canonical JSON.",
+  "frames": [
+    {
+      "kind": "msg",
+      "name": "msg",
+      "plaintext": "\u001fTYC2\n{\"body\":\"hello\\nthere\",\"devicesSeq\":3,\"kind\":\"msg\",\"msgId\":\"1794000000000-0011223344556677\",\"sentAt\":1794000000000,\"type\":\"text\"}"
+    },
+    {
+      "kind": "msg",
+      "name": "msg-attachment-no-devicesSeq",
+      "plaintext": "\u001fTYC2\n{\"body\":\"{\\\"ref\\\":\\\"chat/ab\\\",\\\"mime\\\":\\\"image/png\\\"}\",\"kind\":\"msg\",\"msgId\":\"1794000000000-0011223344556677\",\"sentAt\":1794000000000,\"type\":\"attachment\"}"
+    },
+    {
+      "kind": "sent-sync",
+      "name": "sent-sync-1to1",
+      "plaintext": "\u001fTYC2\n{\"body\":\"hi bob\",\"dest\":\"chat-bob\",\"devicesSeq\":4,\"kind\":\"sent-sync\",\"msgId\":\"1794000000000-0011223344556677\",\"sentAt\":1794000000000,\"type\":\"text\"}"
+    },
+    {
+      "kind": "sent-sync",
+      "name": "sent-sync-group",
+      "plaintext": "\u001fTYC2\n{\"body\":\"hi all\",\"devicesSeq\":4,\"g\":\"grp-1\",\"kind\":\"sent-sync\",\"mid\":\"mid-1\",\"msgId\":\"1794000000000-0011223344556677\",\"sentAt\":1794000000000,\"type\":\"text\"}"
+    },
+    {
+      "kind": "read-sync",
+      "name": "read-sync",
+      "plaintext": "\u001fTYC2\n{\"conv\":\"chat-bob\",\"devicesSeq\":4,\"kind\":\"read-sync\",\"msgId\":\"1794000000000-0011223344556677\",\"sentAt\":1794000000000,\"upTo\":1793999999000}"
+    },
+    {
+      "kind": "incoming-sync",
+      "name": "incoming-sync",
+      "plaintext": "\u001fTYC2\n{\"body\":\"from an old peer\",\"devicesSeq\":4,\"from\":\"chat-carol\",\"kind\":\"incoming-sync\",\"msgId\":\"1794000000000-0011223344556677\",\"sentAt\":1794000000000,\"type\":\"text\"}"
+    },
+    {
+      "kind": "secret-placeholder",
+      "name": "secret-placeholder",
+      "plaintext": "\u001fTYC2\n{\"devicesSeq\":3,\"expiresAt\":1794086400000,\"from\":\"chat-bob\",\"kind\":\"secret-placeholder\",\"msgId\":\"1794000000000-0011223344556677\",\"sentAt\":1794000000000,\"sid\":\"4f2a9c\",\"viewOnce\":true}"
+    },
+    {
+      "kind": "secret-placeholder",
+      "name": "secret-placeholder-sent-sync",
+      "plaintext": "\u001fTYC2\n{\"dest\":\"chat-bob\",\"devicesSeq\":4,\"from\":\"chat-alice\",\"kind\":\"secret-placeholder\",\"msgId\":\"1794000000000-0011223344556677\",\"sentAt\":1794000000000,\"viewOnce\":false}"
+    }
+  ],
+  "legacy": [
+    {
+      "body": "old framed",
+      "msgId": "1794000000000-aa",
+      "name": "TYC1",
+      "plaintext": "\u001fTYC1\n1794000000000-aa\n1794000000000\ntext\nold framed",
+      "sentAt": 1794000000000,
+      "type": "text"
+    },
+    {
+      "body": "a pre-framing peer",
+      "msgId": "",
+      "name": "raw",
+      "plaintext": "a pre-framing peer",
+      "sentAt": 0,
+      "type": "text"
+    }
+  ],
+  "sentinel": "\u001fTYC2\n"
+}
