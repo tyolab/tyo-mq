@@ -157,4 +157,36 @@ test('an expired JWKS token: the validator logs "token rejected (expired)" and t
     } finally { await stub.close(); }
 });
 
+test('unauthenticated-socket grace: a socket that never authenticates into a locked realm gets AUTH_FAIL + server disconnect after the grace; an authenticated one and an open-realm one are left alone', async () => {
+    const srv = await startServer({ auth: { enabled: true, tokens: [{ token: 't-consumer', realm: 'locked', role: 'consumer' }], realms: { locked: { required: true }, default: { required: false } }, unauthenticated_grace_ms: 500 } });
+    const logger = capturingLogger();
+    srv.server.logger = logger;
+    try {
+        // 1) zombie shape: declares the locked realm, never presents a valid token
+        const zombie = await connect(srv.port);
+        const failP = nextAuthFail(zombie);
+        const gone = new Promise(r => zombie.on('disconnect', reason => r(reason)));
+        zombie.emit('AUTHENTICATION', { token: 'expired-or-garbage', realm: 'locked' });   // the prod zombie shape: AUTH_FAIL, then it just sits there
+        const firstFail = await failP;
+        assert.strictEqual(firstFail.code, 401);
+        await delay(100);
+        assert.strictEqual(zombie.connected, true, 'still connected before the grace');
+        const reason = await Promise.race([gone, delay(2500).then(() => 'TIMEOUT')]);
+        assert.strictEqual(reason, 'io server disconnect', 'cut off by the broker after the grace');
+        const fails = logger.calls.warn.filter(l => /AUTH GRACE: disconnecting unauthenticated socket/.test(l));
+        assert.strictEqual(fails.length, 1, 'one attributable warn line (ip, realm, grace)');
+
+        // 2) authenticated socket in the locked realm survives well past the grace
+        const good = await connect(srv.port);
+        await authenticate(good, { token: 't-consumer', realm: 'locked' });
+        // 3) open-realm socket that never authenticates also survives (no token required there)
+        const open = await connect(srv.port);
+        open.emit('CONSUMER', { name: 'o', realm: 'default' });
+        await delay(900);
+        assert.strictEqual(good.connected, true, 'authenticated socket untouched');
+        assert.strictEqual(open.connected, true, 'open-realm socket untouched');
+        good.disconnect(); open.disconnect();
+    } finally { await srv.close(); }
+});
+
 run();
