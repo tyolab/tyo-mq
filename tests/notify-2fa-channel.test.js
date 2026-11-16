@@ -163,4 +163,26 @@ test('delivery: X-Tyo-Delivery: wait reports sse/push results; default path resp
     } finally { await srv.finish(); }
 });
 
+test('sender: a display name rides on the message and the push payload (both modes), bounded to 64 chars; absent when not given', async () => {
+    const srv = await startNotify();
+    try {
+        await httpRequest(srv.port, 'POST', '/notify/s1/register', { body: { transport: 'null', token: 'tok-s1', app_id: 'demo' } });
+        let r = await httpRequest(srv.port, 'PUT', '/notify/s1', { headers: { 'x-tyo-sender': 'TYO ID', 'x-tyo-push': 'content', title: 'TYO ID code' }, body: '123456 is your sign-in code' });
+        assert.strictEqual(r.status, 200, r.body); assert.strictEqual(r.json.sender, 'TYO ID');
+        r = await httpRequest(srv.port, 'POST', '/notify', { body: { topic: 's1', message: 'appointment confirmed', sender: "Queensland Children's Hospital", push: 'wake' } });
+        assert.strictEqual(r.status, 200, r.body); assert.strictEqual(r.json.sender, "Queensland Children's Hospital");
+        r = await httpRequest(srv.port, 'PUT', '/notify/s1', { headers: { 'x-tyo-sender': 'x'.repeat(200) }, body: 'long' });
+        assert.strictEqual(r.json.sender.length, 64);
+        r = await httpRequest(srv.port, 'PUT', '/notify/s1', { body: 'plain' });
+        assert.strictEqual(r.json.sender, undefined);
+        await delay(200);
+        const sent = srv.nt.sent;
+        assert.strictEqual(sent[0].payload.sender, 'TYO ID', 'content push carries sender');
+        assert.strictEqual(sent[1].payload.sender, "Queensland Children's Hospital", 'wake push carries sender too');
+        assert.strictEqual(sent[1].payload.wake, '1');
+        const since = await httpRequest(srv.port, 'GET', '/notify/s1/json?since=all&poll=1');
+        assert.ok(since.body.includes('"sender":"TYO ID"'), 'ring/catch-up carries sender');
+    } finally { await srv.finish(); }
+});
+
 run();
