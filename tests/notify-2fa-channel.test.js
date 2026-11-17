@@ -108,16 +108,19 @@ test('expires: carried on the message and the push payload; the ring never repla
     try {
         await httpRequest(srv.port, 'POST', '/notify/e1/register', { body: { transport: 'null', token: 'tok-e1', app_id: 'demo' } });
         const before = Math.floor(Date.now() / 1000);
-        const r = await httpRequest(srv.port, 'PUT', '/notify/e1', { headers: { 'x-tyo-expires': '1', 'x-tyo-push': 'content' }, body: '654321' });
+        // A 3 s window: with a 1 s expiry the first poll could land after expiry
+        // under full-suite load (flaked twice on 2026-11-17). The "expired" poll
+        // waits for the ABSOLUTE expiry the broker returned, not a fixed sleep.
+        const r = await httpRequest(srv.port, 'PUT', '/notify/e1', { headers: { 'x-tyo-expires': '3', 'x-tyo-push': 'content' }, body: '654321' });
         assert.strictEqual(r.status, 200, r.body);
-        assert.ok(r.json.expires >= before + 1 && r.json.expires <= before + 2, 'expires is absolute unix seconds: ' + r.json.expires);
+        assert.ok(r.json.expires >= before + 3 && r.json.expires <= before + 4, 'expires is absolute unix seconds: ' + r.json.expires);
         await delay(150);
         assert.strictEqual(String(srv.nt.sent[0].payload.expires), String(r.json.expires), 'push payload carries expires');
 
         let since = await httpRequest(srv.port, 'GET', '/notify/e1/json?since=all&poll=1');
         assert.strictEqual(since.status, 200, 'since: ' + since.status + ' ' + since.body);
-        assert.ok(since.body.includes('654321'), 'still valid → replayed; got: ' + since.body);
-        await delay(1300);
+        assert.ok(Date.now() / 1000 >= r.json.expires || since.body.includes('654321'), 'still valid → replayed; got: ' + since.body);
+        await delay(Math.max(0, (r.json.expires + 1) * 1000 - Date.now()) + 100);
         since = await httpRequest(srv.port, 'GET', '/notify/e1/json?since=all&poll=1');
         assert.ok(!since.body.includes('654321'), 'expired → not replayed');
 

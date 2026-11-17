@@ -45,7 +45,10 @@ function postJson(port, path, body, headers) {
 // ── unit: the limiter itself ──────────────────────────────────────────────
 
 test('token buckets enforce rate and burst, and refill over time', async () => {
-    const limits = new Limits(() => ({ messages_per_second: 1000, message_burst: 2 }));
+    // Burst/refusal on a SLOW bucket (1/s): a few ms of scheduler delay between
+    // calls cannot refill a token. (At 1000/s it could, and did — flaked twice
+    // under full-suite load on 2026-11-17.)
+    const limits = new Limits(() => ({ messages_per_second: 1, message_burst: 2 }));
 
     assert.strictEqual(limits.produceAllowed('s1', 'default', 10).ok, true);
     assert.strictEqual(limits.produceAllowed('s1', 'default', 10).ok, true);
@@ -57,9 +60,11 @@ test('token buckets enforce rate and burst, and refill over time', async () => {
     // Independent sockets have independent buckets.
     assert.strictEqual(limits.produceAllowed('s2', 'default', 10).ok, true);
 
-    // 1000/s refills the bucket almost immediately.
+    // Refill: a FAST bucket (1000/s) exhausted now is full again after 30 ms.
+    const fast = new Limits(() => ({ messages_per_second: 1000, message_burst: 2 }));
+    fast.produceAllowed('f1', 'default', 10); fast.produceAllowed('f1', 'default', 10);
     await delay(30);
-    assert.strictEqual(limits.produceAllowed('s1', 'default', 10).ok, true);
+    assert.strictEqual(fast.produceAllowed('f1', 'default', 10).ok, true);
 });
 
 test('per-realm overrides beat globals; absent values mean unlimited', () => {
