@@ -58,6 +58,7 @@ function installSealedEnv() {
 const TOKENS = {
     't-acct':  { realm: 'default', role: 'both', identity: ACCOUNT, sub: 'u1' },
     't-other': { realm: 'default', role: 'both', identity: 'chat-ffffffffffffffff', sub: 'u2' },
+    't-anon':  { realm: 'default', role: 'both' },                      // no identity claim (id.tyo anon mint)
 };
 function boundAuth(extra) {
     return Object.assign({ auth: { enabled: true, realms: { default: { required: true, e2ee: 'required' } } } }, extra || {});
@@ -75,11 +76,30 @@ async function authed(port, token) {
     assert.strictEqual(r, 'ok', 'auth ' + token);
     return s;
 }
-function register(s, name) { s.emit('CONSUMER', { name, id: name + '-inst', consumer_id: name }); return delay(120); }
+function register(s, name, extra) { s.emit('CONSUMER', Object.assign({ name, id: name + '-inst', consumer_id: name }, extra || {})); return delay(120); }
+// Proof of possession for a linked device (1.12.0): DEVICE_CHALLENGE, sign with the
+// account identity key, register with device_proof. `priv` = libsignal PrivateKey.
+const { PrivateKey: LsPrivateKey, PublicKey: LsPublicKey } = require('@signalapp/libsignal-client');
+const DEVREG_PREFIX = 'tyo-devreg-v1\n';
+function signDevreg(priv, account, device, nonce) {
+    return Buffer.from(priv.sign(Buffer.from(DEVREG_PREFIX + account + '\n' + device + '\n' + nonce, 'utf8'))).toString('base64');
+}
+async function registerDevice(s, account, device, priv, tamper) {
+    const ch = await emitAck(s, 'DEVICE_CHALLENGE', { account, device });
+    assert.strictEqual(ch.ok, true, JSON.stringify(ch));
+    const proof = { nonce: ch.nonce, sig: signDevreg(priv, account, device, ch.nonce) };
+    if (tamper) tamper(proof, ch);
+    await register(s, account + '.' + device, { device_proof: proof });
+}
+// Key pair for the test account: fresh per process; its public key is what the
+// device-1 bundle publishes (so the vectors' keys are used only where their
+// signatures are checked).
+const { IdentityKeyPair: LsIdentityKeyPair } = require('@signalapp/libsignal-client');
+const DL_PRIV = LsIdentityKeyPair.deserialize(Buffer.from(DL.identityKeyPair, 'base64')).privateKey;   // the vector's TEST key pair: signs lists AND proofs
 // The device-list vector is signed by ITS OWN test identity key (DL.identityKey),
 // which differs from the bundle vector's; pass it where a list will be verified.
 async function publishDevice1Bundle(s, identityKey) {
-    const r = await emitAck(s, 'PREKEY_PUBLISH', Object.assign({}, BUNDLE.publishDevice1, { identity: ACCOUNT }, identityKey ? { identity_key: identityKey } : {}));
+    const r = await emitAck(s, 'PREKEY_PUBLISH', Object.assign({}, BUNDLE.publishDevice1, { identity: ACCOUNT, identity_key: identityKey || DL.identityKey }));
     assert.strictEqual(r.ok, true, JSON.stringify(r));
 }
 
@@ -88,7 +108,8 @@ test('identity binding: the account token may register device names .2..5 but no
     try {
         const s = await authed(srv.port, 't-acct');
         const errors = []; s.on('ERROR', e => errors.push(e));
-        await register(s, ACCOUNT); await register(s, D2); await register(s, ACCOUNT + '.5');
+        await register(s, ACCOUNT); await publishDevice1Bundle(s);
+        await registerDevice(s, ACCOUNT, 2, DL_PRIV); await registerDevice(s, ACCOUNT, 5, DL_PRIV);
         assert.strictEqual(errors.length, 0, 'device names accepted: ' + JSON.stringify(errors));
         await register(s, ACCOUNT + '.6'); await register(s, 'chat-ffffffffffffffff.2');
         assert.strictEqual(errors.filter(e => e.code === 403).length, 2, '.6 and another account refused');
@@ -100,8 +121,8 @@ test('per-device bundles: device 2 publishes without overwriting device 1; TAKE 
     const srv = await boot();
     try {
         const phone = await authed(srv.port, 't-acct'); await register(phone, ACCOUNT);
-        const browser = await authed(srv.port, 't-acct'); await register(browser, D2);
-        await publishDevice1Bundle(phone, DL.identityKey);
+        await publishDevice1Bundle(phone);
+        const browser = await authed(srv.port, 't-acct'); await registerDevice(browser, ACCOUNT, 2, DL_PRIV);
         const r2 = await emitAck(browser, 'PREKEY_PUBLISH', BUNDLE.publishDevice2);     // identity=account, device=2
         assert.strictEqual(r2.ok, true, JSON.stringify(r2));
         // a stranger socket may not publish device 2 for this account
@@ -130,13 +151,13 @@ test('device list: device 1 publishes the vector (verified, seq 7); fetch + TAKE
     let srv = await boot(opts);
     try {
         const phone = await authed(srv.port, 't-acct'); await register(phone, ACCOUNT);
-        const browser = await authed(srv.port, 't-acct'); await register(browser, D2);
         const other = await authed(srv.port, 't-other'); await register(other, 'chat-ffffffffffffffff');
 
         // before the device-1 bundle exists the list cannot be verified
         const early = await emitAck(phone, 'DEVICES_PUBLISH', wireOf(DL.wire));
         assert.strictEqual(early.ok, false); assert.strictEqual(early.code, 409);
-        await publishDevice1Bundle(phone, DL.identityKey);
+        await publishDevice1Bundle(phone);
+        const browser = await authed(srv.port, 't-acct'); await registerDevice(browser, ACCOUNT, 2, DL_PRIV);
 
         const pub = await emitAck(phone, 'DEVICES_PUBLISH', wireOf(DL.wire));
         assert.strictEqual(pub.ok, true, JSON.stringify(pub)); assert.strictEqual(pub.seq, 7);
@@ -184,8 +205,9 @@ test('sealed certs are minted per device: device_id 2 only for the socket regist
     const srv = await boot();
     try {
         const phone = await authed(srv.port, 't-acct'); await register(phone, ACCOUNT);
-        const browser = await authed(srv.port, 't-acct'); await register(browser, D2);
-        const ik = BUNDLE.publishDevice1.identity_key;
+        await publishDevice1Bundle(phone);
+        const browser = await authed(srv.port, 't-acct'); await registerDevice(browser, ACCOUNT, 2, DL_PRIV);
+        const ik = DL.identityKey;
         const c1 = await emitAck(phone, 'SEALED_CERT_REQUEST', { identity: ACCOUNT, identity_key: ik, device_id: 1 });
         assert.strictEqual(c1.ok, true, JSON.stringify(c1));
         const c2bad = await emitAck(phone, 'SEALED_CERT_REQUEST', { identity: ACCOUNT, identity_key: ik, device_id: 2 });
@@ -235,7 +257,7 @@ test('device-list enforcement (1.11.1): with a stored list, a .N not on it is re
         const freshBrowser = async () => { const s = await authed(srv.port, 't-acct'); const errors = []; s.on('ERROR', e => errors.push(e)); return { s, errors }; };
 
         // no list yet → .2 admitted everywhere
-        let b = await freshBrowser(); await register(b.s, D2);
+        let b = await freshBrowser(); await registerDevice(b.s, ACCOUNT, 2, DL_PRIV);
         assert.strictEqual(b.errors.length, 0, 'no list: .2 registers');
         assert.strictEqual((await emitAck(b.s, 'PREKEY_PUBLISH', BUNDLE.publishDevice2)).ok, true);
         assert.strictEqual((await emitAck(b.s, 'SEALED_CERT_REQUEST', { identity: D2, identity_key: ik })).ok, true);
@@ -243,14 +265,14 @@ test('device-list enforcement (1.11.1): with a stored list, a .N not on it is re
 
         // list seq 7 = devices [1,2] → still admitted
         assert.strictEqual((await emitAck(phone, 'DEVICES_PUBLISH', wireOf(DL.wire))).seq, 7);
-        b = await freshBrowser(); await register(b.s, D2);
+        b = await freshBrowser(); await registerDevice(b.s, ACCOUNT, 2, DL_PRIV);
         assert.strictEqual(b.errors.length, 0, 'listed: .2 registers');
         assert.strictEqual((await emitAck(b.s, 'SEALED_CERT_REQUEST', { identity: D2, identity_key: ik })).ok, true);
         b.s.disconnect();
 
         // list seq 8 = devices [1] → .2 refused at all three points, device 1 untouched
         assert.strictEqual((await emitAck(phone, 'DEVICES_PUBLISH', wireOf(DL.seq8RemovingDevice2))).seq, 8);
-        b = await freshBrowser(); await register(b.s, D2);
+        b = await freshBrowser(); await registerDevice(b.s, ACCOUNT, 2, DL_PRIV);
         assert.strictEqual(b.errors.length, 1, 'removed: registration refused');
         assert.strictEqual(b.errors[0].code, 403); assert.ok(/device 2 is not on the account's device list \(seq 8\)/.test(b.errors[0].message), b.errors[0].message);
         const pub = await emitAck(b.s, 'PREKEY_PUBLISH', BUNDLE.publishDevice2);
@@ -258,7 +280,7 @@ test('device-list enforcement (1.11.1): with a stored list, a .N not on it is re
         const cert = await emitAck(b.s, 'SEALED_CERT_REQUEST', { identity: D2, identity_key: ik });
         assert.strictEqual(cert.ok, false); assert.strictEqual(cert.code, 403); assert.ok(/not on the account's device list/.test(cert.message));
         // a device never listed (.3) is refused the same way; device 1 keeps working
-        await register(b.s, ACCOUNT + '.3');
+        await registerDevice(b.s, ACCOUNT, 3, DL_PRIV);
         assert.strictEqual(b.errors.length, 2); assert.ok(/device 3/.test(b.errors[1].message));
         b.s.disconnect();
         assert.strictEqual((await emitAck(phone, 'SEALED_CERT_REQUEST', { identity: ACCOUNT, identity_key: ik })).ok, true, 'device 1 unaffected');
@@ -272,12 +294,12 @@ test('cert key pin (1.11.2): with a published bundle, SEALED_CERT_REQUEST is min
     const srv = await boot();
     try {
         const phone = await authed(srv.port, 't-acct'); await register(phone, ACCOUNT);
-        const browser = await authed(srv.port, 't-acct'); await register(browser, D2);
-        const realKey = BUNDLE.publishDevice1.identity_key;
-        const otherKey = Buffer.from(require('@signalapp/libsignal-client').PrivateKey.generate().getPublicKey().serialize()).toString('base64');
+        const realKey = DL.identityKey;
+        const otherKey = Buffer.from(LsPrivateKey.generate().getPublicKey().serialize()).toString('base64');
         // no bundle yet → any key (today's behaviour for a fresh account)
         assert.strictEqual((await emitAck(phone, 'SEALED_CERT_REQUEST', { identity: ACCOUNT, identity_key: otherKey })).ok, true, 'no bundle: unpinned');
         await publishDevice1Bundle(phone);
+        const browser = await authed(srv.port, 't-acct'); await registerDevice(browser, ACCOUNT, 2, DL_PRIV);
         const ok1 = await emitAck(phone, 'SEALED_CERT_REQUEST', { identity: ACCOUNT, identity_key: realKey });
         assert.strictEqual(ok1.ok, true, JSON.stringify(ok1));
         const bad1 = await emitAck(phone, 'SEALED_CERT_REQUEST', { identity: ACCOUNT, identity_key: otherKey });
@@ -288,6 +310,60 @@ test('cert key pin (1.11.2): with a published bundle, SEALED_CERT_REQUEST is min
         assert.strictEqual(bad2.ok, false); assert.strictEqual(bad2.code, 403);
         phone.disconnect(); browser.disconnect();
     } finally { await srv.close(); env.restore(); }
+});
+
+test('proof of possession (1.12.0): .N registration needs DEVICE_CHALLENGE + device_proof signed by the account identity key — any token type; missing/invalid/replayed/mismatched proofs refused; device 1 unchanged unless it sends one', async () => {
+    const srv = await boot();
+    try {
+        const phone = await authed(srv.port, 't-acct'); await register(phone, ACCOUNT);
+        const errsOf = (s) => { const e = []; s.on('ERROR', x => e.push(x)); return e; };
+        const otherPriv = LsPrivateKey.generate();
+
+        // before the device-1 bundle: a well-formed proof cannot be verified → 409
+        let anon = await authed(srv.port, 't-anon'); let errs = errsOf(anon);
+        await registerDevice(anon, ACCOUNT, 2, DL_PRIV);
+        assert.strictEqual(errs.length, 1, JSON.stringify(errs)); assert.strictEqual(errs[0].code, 409); assert.ok(/publish the device-1 prekey bundle first/.test(errs[0].message), errs[0].message);
+        anon.disconnect();
+        await publishDevice1Bundle(phone);
+
+        // no proof at all (what a squatter with an anon token sends today) → 403 required
+        anon = await authed(srv.port, 't-anon'); errs = errsOf(anon);
+        await register(anon, D2);
+        assert.strictEqual(errs.length, 1); assert.strictEqual(errs[0].code, 403); assert.ok(/device proof required/.test(errs[0].message), errs[0].message);
+        // signed by a different key → 403 invalid
+        await registerDevice(anon, ACCOUNT, 2, otherPriv);
+        assert.strictEqual(errs.length, 2); assert.strictEqual(errs[1].code, 403); assert.ok(/device proof invalid/.test(errs[1].message), errs[1].message);
+        // a correct proof with an ANON token is accepted: the key binds the slot, not the token
+        await registerDevice(anon, ACCOUNT, 2, DL_PRIV);
+        assert.strictEqual(errs.length, 2, 'anon token + valid proof registers .2: ' + JSON.stringify(errs));
+        // a fresh challenge registers .3; re-using its nonce for .4 is a replay → 409
+        const ch2 = await emitAck(anon, 'DEVICE_CHALLENGE', { account: ACCOUNT, device: 3 });
+        await register(anon, ACCOUNT + '.3', { device_proof: { nonce: ch2.nonce, sig: signDevreg(DL_PRIV, ACCOUNT, 3, ch2.nonce) } });
+        assert.strictEqual(errs.length, 2, '.3 with a fresh challenge registers');
+        await register(anon, ACCOUNT + '.4', { device_proof: { nonce: ch2.nonce, sig: signDevreg(DL_PRIV, ACCOUNT, 4, ch2.nonce) } });
+        assert.strictEqual(errs.length, 3); assert.strictEqual(errs[2].code, 409); assert.ok(/challenge expired or unknown/.test(errs[2].message), 'consumed nonce: ' + errs[2].message);
+        // a challenge issued for device 5, used to register .4 → 409 mismatch
+        const ch3 = await emitAck(anon, 'DEVICE_CHALLENGE', { account: ACCOUNT, device: 5 });
+        await register(anon, ACCOUNT + '.4', { device_proof: { nonce: ch3.nonce, sig: signDevreg(DL_PRIV, ACCOUNT, 4, ch3.nonce) } });
+        assert.strictEqual(errs.length, 4); assert.strictEqual(errs[3].code, 409);
+        anon.disconnect();
+
+        // device 1: a proof is verified WHEN OFFERED (no bundle for that account → 409); none offered → unchanged
+        const phone2 = await authed(srv.port, 't-anon'); const e2 = errsOf(phone2);
+        const ch4 = await emitAck(phone2, 'DEVICE_CHALLENGE', { account: 'chat-eeeeeeeeeeeeeeee', device: 1 });
+        await register(phone2, 'chat-eeeeeeeeeeeeeeee', { device_proof: { nonce: ch4.nonce, sig: signDevreg(otherPriv, 'chat-eeeeeeeeeeeeeeee', 1, ch4.nonce) } });
+        assert.strictEqual(e2.length, 1, JSON.stringify(e2)); assert.strictEqual(e2[0].code, 409);
+        await register(phone2, 'chat-dddddddddddddddd');
+        assert.strictEqual(e2.length, 1, 'device 1 without a proof registers as before');
+        phone2.disconnect();
+
+        // the list check comes first: a removed device gets the list message, not the proof one
+        assert.strictEqual((await emitAck(phone, 'DEVICES_PUBLISH', wireOf(DL.seq8RemovingDevice2))).seq, 8);
+        const late = await authed(srv.port, 't-acct'); const e3 = errsOf(late);
+        await registerDevice(late, ACCOUNT, 2, DL_PRIV);
+        assert.strictEqual(e3.length, 1); assert.ok(/not on the account's device list/.test(e3[0].message));
+        late.disconnect(); phone.disconnect();
+    } finally { await srv.close(); }
 });
 
 run();
