@@ -231,7 +231,7 @@ test('device-list enforcement (1.11.1): with a stored list, a .N not on it is re
     try {
         const phone = await authed(srv.port, 't-acct'); await register(phone, ACCOUNT);
         await publishDevice1Bundle(phone, DL.identityKey);
-        const ik = BUNDLE.publishDevice1.identity_key;
+        const ik = DL.identityKey;   // certs are pinned to the published bundle's key (1.11.2)
         const freshBrowser = async () => { const s = await authed(srv.port, 't-acct'); const errors = []; s.on('ERROR', e => errors.push(e)); return { s, errors }; };
 
         // no list yet → .2 admitted everywhere
@@ -264,6 +264,29 @@ test('device-list enforcement (1.11.1): with a stored list, a .N not on it is re
         assert.strictEqual((await emitAck(phone, 'SEALED_CERT_REQUEST', { identity: ACCOUNT, identity_key: ik })).ok, true, 'device 1 unaffected');
         assert.strictEqual((await emitAck(phone, 'PREKEY_TAKE', { identity: ACCOUNT, device: 2 })).found, true, 'stale device-2 bundle still served until it is replaced; peers drop by list');
         phone.disconnect();
+    } finally { await srv.close(); env.restore(); }
+});
+
+test('cert key pin (1.11.2): with a published bundle, SEALED_CERT_REQUEST is minted only for that identity_key — for device 1 and for .N; no bundle → as before', async () => {
+    const env = installSealedEnv();
+    const srv = await boot();
+    try {
+        const phone = await authed(srv.port, 't-acct'); await register(phone, ACCOUNT);
+        const browser = await authed(srv.port, 't-acct'); await register(browser, D2);
+        const realKey = BUNDLE.publishDevice1.identity_key;
+        const otherKey = Buffer.from(require('@signalapp/libsignal-client').PrivateKey.generate().getPublicKey().serialize()).toString('base64');
+        // no bundle yet → any key (today's behaviour for a fresh account)
+        assert.strictEqual((await emitAck(phone, 'SEALED_CERT_REQUEST', { identity: ACCOUNT, identity_key: otherKey })).ok, true, 'no bundle: unpinned');
+        await publishDevice1Bundle(phone);
+        const ok1 = await emitAck(phone, 'SEALED_CERT_REQUEST', { identity: ACCOUNT, identity_key: realKey });
+        assert.strictEqual(ok1.ok, true, JSON.stringify(ok1));
+        const bad1 = await emitAck(phone, 'SEALED_CERT_REQUEST', { identity: ACCOUNT, identity_key: otherKey });
+        assert.strictEqual(bad1.ok, false); assert.strictEqual(bad1.code, 403); assert.ok(/does not match the account's published bundle/.test(bad1.message), bad1.message);
+        const ok2 = await emitAck(browser, 'SEALED_CERT_REQUEST', { identity: D2, identity_key: realKey });
+        assert.strictEqual(ok2.ok, true, 'device 2 shares the account key');
+        const bad2 = await emitAck(browser, 'SEALED_CERT_REQUEST', { identity: D2, identity_key: otherKey });
+        assert.strictEqual(bad2.ok, false); assert.strictEqual(bad2.code, 403);
+        phone.disconnect(); browser.disconnect();
     } finally { await srv.close(); env.restore(); }
 });
 
