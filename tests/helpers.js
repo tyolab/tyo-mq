@@ -44,6 +44,14 @@ function startServer(options) {
         // And the TYO Notify stores (claims + phone-push registry) — both default
         // to files in the cwd, so a device registered by an earlier test file
         // would be hydrated and pushed to by the next broker.
+        // And the prekey directory (tyo-mq.prekeys.sqlite in the cwd): bundles,
+        // UAKs and — since 1.11.0 — signed device lists would be hydrated into the
+        // next broker (a seq-8 list from one test refused device 2 in another).
+        let prekeyStoreFile = null;
+        if (opts.prekey_store === undefined) {
+            prekeyStoreFile = path.join(os.tmpdir(), 'tyo-mq-test-prekeys-' + process.pid + '-' + Math.random().toString(36).slice(2) + '.sqlite');
+            opts.prekey_store = { filename: prekeyStoreFile };
+        }
         let notifyFiles = [];
         if (opts.notify_store === undefined || !opts.notify_store.push_filename) {
             const base = path.join(os.tmpdir(), 'tyo-mq-test-notify-' + process.pid + '-' + Math.random().toString(36).slice(2));
@@ -67,6 +75,8 @@ function startServer(options) {
                             for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(pushStoreFile + suffix); } catch (e) {} }
                         for (const f of notifyFiles)
                             for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(f + suffix); } catch (e) {} }
+                        if (prekeyStoreFile)
+                            for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(prekeyStoreFile + suffix); } catch (e) {} }
                         if (subStoreFile) {
                             try { mqServer._subscriptionStore && mqServer._subscriptionStore.close(); } catch (e) {}
                             for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(subStoreFile + suffix); } catch (e) {} }

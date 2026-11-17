@@ -27,7 +27,8 @@ function tmpDb() {
     return path.join(os.tmpdir(), 'tyo-push-reg-' + process.pid + '-' + Math.floor(Math.random() * 1e9) + '.sqlite');
 }
 function cleanup(file) {
-    for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(file + suffix); } catch (e) {} }
+    for (const f of [file, file.replace(/\.sqlite$/, '-prekeys.sqlite')])
+        for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(f + suffix); } catch (e) {} }
 }
 function installSealedEnv() {
     const root = PrivateKey.generate();
@@ -45,8 +46,12 @@ function installPushEnv(on) {
     return { restore: () => { if (prev === undefined) delete process.env.TYO_MQ_PUSH_TRANSPORT; else process.env.TYO_MQ_PUSH_TRANSPORT = prev; } };
 }
 function clientOpts(port) { return { host: '127.0.0.1', port: port, protocol: 'http' }; }
+// Both durable files a real broker keeps across a restart: the push registry
+// AND the prekey store (bob's UAK lives there; without it the restarted broker
+// refuses the sealed frame and no wake fires). The helper otherwise gives each
+// boot a fresh temp prekey store.
 function serverOptions(file) {
-    return { auth: { realms: { default: { e2ee: 'required' } } }, push_store: { filename: file } };
+    return { auth: { realms: { default: { e2ee: 'required' } } }, push_store: { filename: file }, prekey_store: { filename: file.replace(/\.sqlite$/, '-prekeys.sqlite') } };
 }
 function call(client, event, payload) {
     return new Promise((resolve) => client.socket.emit(event, payload, resolve));

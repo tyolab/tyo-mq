@@ -225,4 +225,46 @@ test('stale-devices: a sealed send carrying devices_seq older than the stored li
     } finally { await srv.close(); env.restore(); }
 });
 
+test('device-list enforcement (1.11.1): with a stored list, a .N not on it is refused at registration, PREKEY_PUBLISH and SEALED_CERT_REQUEST; no list or device 1 → unchanged', async () => {
+    const env = installSealedEnv();
+    const srv = await boot();
+    try {
+        const phone = await authed(srv.port, 't-acct'); await register(phone, ACCOUNT);
+        await publishDevice1Bundle(phone, DL.identityKey);
+        const ik = BUNDLE.publishDevice1.identity_key;
+        const freshBrowser = async () => { const s = await authed(srv.port, 't-acct'); const errors = []; s.on('ERROR', e => errors.push(e)); return { s, errors }; };
+
+        // no list yet → .2 admitted everywhere
+        let b = await freshBrowser(); await register(b.s, D2);
+        assert.strictEqual(b.errors.length, 0, 'no list: .2 registers');
+        assert.strictEqual((await emitAck(b.s, 'PREKEY_PUBLISH', BUNDLE.publishDevice2)).ok, true);
+        assert.strictEqual((await emitAck(b.s, 'SEALED_CERT_REQUEST', { identity: D2, identity_key: ik })).ok, true);
+        b.s.disconnect();
+
+        // list seq 7 = devices [1,2] → still admitted
+        assert.strictEqual((await emitAck(phone, 'DEVICES_PUBLISH', wireOf(DL.wire))).seq, 7);
+        b = await freshBrowser(); await register(b.s, D2);
+        assert.strictEqual(b.errors.length, 0, 'listed: .2 registers');
+        assert.strictEqual((await emitAck(b.s, 'SEALED_CERT_REQUEST', { identity: D2, identity_key: ik })).ok, true);
+        b.s.disconnect();
+
+        // list seq 8 = devices [1] → .2 refused at all three points, device 1 untouched
+        assert.strictEqual((await emitAck(phone, 'DEVICES_PUBLISH', wireOf(DL.seq8RemovingDevice2))).seq, 8);
+        b = await freshBrowser(); await register(b.s, D2);
+        assert.strictEqual(b.errors.length, 1, 'removed: registration refused');
+        assert.strictEqual(b.errors[0].code, 403); assert.ok(/device 2 is not on the account's device list \(seq 8\)/.test(b.errors[0].message), b.errors[0].message);
+        const pub = await emitAck(b.s, 'PREKEY_PUBLISH', BUNDLE.publishDevice2);
+        assert.strictEqual(pub.ok, false); assert.strictEqual(pub.code, 403); assert.ok(/not on the account's device list/.test(pub.message));
+        const cert = await emitAck(b.s, 'SEALED_CERT_REQUEST', { identity: D2, identity_key: ik });
+        assert.strictEqual(cert.ok, false); assert.strictEqual(cert.code, 403); assert.ok(/not on the account's device list/.test(cert.message));
+        // a device never listed (.3) is refused the same way; device 1 keeps working
+        await register(b.s, ACCOUNT + '.3');
+        assert.strictEqual(b.errors.length, 2); assert.ok(/device 3/.test(b.errors[1].message));
+        b.s.disconnect();
+        assert.strictEqual((await emitAck(phone, 'SEALED_CERT_REQUEST', { identity: ACCOUNT, identity_key: ik })).ok, true, 'device 1 unaffected');
+        assert.strictEqual((await emitAck(phone, 'PREKEY_TAKE', { identity: ACCOUNT, device: 2 })).found, true, 'stale device-2 bundle still served until it is replaced; peers drop by list');
+        phone.disconnect();
+    } finally { await srv.close(); env.restore(); }
+});
+
 run();
