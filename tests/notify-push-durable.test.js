@@ -163,4 +163,35 @@ test('a store-less registry still works (in-memory only, no crash)', () => {
     assert.strictEqual(reg.store, null);
 });
 
+test('registry idle TTL (1.12.2): parseRegistryTtlMs accepts ms/s/m/h/d and 0 = never; default is a year; a sweep logs what it pruned with the topics', () => {
+    const push = require('../lib/push');
+    const D = push.NOTIFY_REGISTRY_TTL_DEFAULT_MS;
+    assert.strictEqual(D, 365 * 24 * 3600 * 1000);
+    assert.strictEqual(push.parseRegistryTtlMs(undefined, D), D);
+    assert.strictEqual(push.parseRegistryTtlMs('', D), D);
+    assert.strictEqual(push.parseRegistryTtlMs('90d', D), 90 * 86400000);
+    assert.strictEqual(push.parseRegistryTtlMs('12h', D), 12 * 3600000);
+    assert.strictEqual(push.parseRegistryTtlMs('30m', D), 30 * 60000);
+    assert.strictEqual(push.parseRegistryTtlMs('45s', D), 45000);
+    assert.strictEqual(push.parseRegistryTtlMs(5000, D), 5000);
+    assert.strictEqual(push.parseRegistryTtlMs(0, D), 0);
+    assert.strictEqual(push.parseRegistryTtlMs('0', D), 0);
+    assert.strictEqual(push.parseRegistryTtlMs('soon', D), D, 'garbage → default');
+    assert.strictEqual(push.parseRegistryTtlMs(-1, D), D);
+
+    const warns = [];
+    const reg = new push.TokenRegistry({ maxIdentities: 10, ttlMs: 1000, logger: { warn: (l) => warns.push(l), log() {}, info() {} } });
+    reg.register('notify', 'contact-mail', { transport: 'fcm', token: 'a', now: 1000 });
+    reg.register('notify', 'busy-topic', { transport: 'fcm', token: 'b', now: 1000 });
+    reg.register('notify', 'fresh', { transport: 'fcm', token: 'c', now: 2500 });   // the sweep at t=2500 prunes the two idle since t=1000
+    assert.strictEqual(reg.count('notify', 'contact-mail'), 0, 'pruned');
+    assert.strictEqual(reg.count('notify', 'fresh'), 1);
+    assert.strictEqual(warns.length, 1, JSON.stringify(warns));
+    assert.ok(/idle-pruned 2 registration\(s\) in realm 'notify'/.test(warns[0]) && /contact-mail/.test(warns[0]) && /busy-topic/.test(warns[0]), warns[0]);
+    const never = new push.TokenRegistry({ maxIdentities: 10, ttlMs: 0, logger: { warn: (l) => warns.push(l) } });
+    never.register('notify', 'rare', { transport: 'fcm', token: 'd', now: 1 });
+    never.register('notify', 'other', { transport: 'fcm', token: 'e', now: 10 * D });
+    assert.strictEqual(never.count('notify', 'rare'), 1, 'ttl 0 never prunes');
+});
+
 run();
