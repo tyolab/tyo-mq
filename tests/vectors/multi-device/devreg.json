@@ -1,0 +1,14 @@
+{
+  "account": "chat-0123456789abcdef",
+  "description": "Device-registration proof: sig = XEdDSA(identity, UTF-8(signedPrefix + account + \"\\n\" + device + \"\\n\" + nonce)); nonce is the broker's base64 string as received. TEST KEY ONLY (same key as device_list.json).",
+  "device": 2,
+  "identityKey": "BeSW9u6F/Fu9/GcVCF5GFIYEXQmtPeBUiV4T/WL1JFI1",
+  "negative": {
+    "signedByOtherKey": "MP3tUauka6qhgWoQMU4PRtl6BC+IrnIXtFbx90oWnjoQyYXLCd6Awp/8trttVnoDjRewirrwqPXGJWuoSufPhw==",
+    "wrongDevice3": 3
+  },
+  "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  "sig": "2uIZAzgK/hE8n5lStZCqTxgJowUWl+cFttUvW3NusW57Zos8WQ5iPdyQh3VXYwgBysSEUv1hJlqofBI1m8uRgw==",
+  "signedBytesUtf8": "tyo-devreg-v1\nchat-0123456789abcdef\n2\nAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  "signedPrefix": "tyo-devreg-v1\n"
+}

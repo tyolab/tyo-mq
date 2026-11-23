@@ -366,4 +366,18 @@ test('proof of possession (1.12.0): .N registration needs DEVICE_CHALLENGE + dev
     } finally { await srv.close(); }
 });
 
+test('devreg vector (frozen, secure-chat p2b): the broker signs/verifies the exact bytes the core does; wrong device and foreign key fail', () => {
+    const MD = require('../lib/multi-device');
+    const DR = V('devreg.json');
+    assert.strictEqual(DR.signedPrefix, MD.DEVREG_PREFIX);
+    assert.strictEqual(MD.devregMessage(DR.account, DR.device, DR.nonce).toString('utf8'), DR.signedBytesUtf8, 'byte-exact message');
+    assert.strictEqual(DR.identityKey, DL.identityKey, 'same test identity as the device-list vector');
+    assert.strictEqual(MD.verifyDevreg(DR.identityKey, DR.account, DR.device, DR.nonce, DR.sig), true, 'the core-produced sig verifies');
+    assert.strictEqual(signDevreg(DL_PRIV, DR.account, DR.device, DR.nonce) === DR.sig || MD.verifyDevreg(DR.identityKey, DR.account, DR.device, DR.nonce, signDevreg(DL_PRIV, DR.account, DR.device, DR.nonce)), true, 'our test signer produces a sig the broker accepts for the same bytes');
+    assert.strictEqual(MD.verifyDevreg(DR.identityKey, DR.account, DR.negative.wrongDevice3, DR.nonce, DR.sig), false, 'bound to the device');
+    assert.strictEqual(MD.verifyDevreg(DR.identityKey, DR.account, DR.device, DR.nonce, DR.negative.signedByOtherKey), false, 'bound to the key');
+    assert.strictEqual(MD.verifyDevreg(DR.identityKey, 'chat-ffffffffffffffff', DR.device, DR.nonce, DR.sig), false, 'bound to the account');
+    assert.strictEqual(MD.verifyDevreg(DR.identityKey, DR.account, DR.device, DR.nonce.slice(0, -1) + 'A', DR.sig), false, 'bound to the nonce string');
+});
+
 run();

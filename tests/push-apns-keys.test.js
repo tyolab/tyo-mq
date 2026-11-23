@@ -112,4 +112,22 @@ test('env: TYO_MQ_PUSH_APNS_KEYS loads per-app keys from files; malformed input 
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('buildApnsFrame (1.12.1): a Notify content frame forwards sender + expires as top-level keys and sets apns-expiration from expires; absent → unchanged', () => {
+    const push = require('../lib/push');
+    const exp = Math.floor(Date.now() / 1000) + 300;
+    const f = push.buildApnsFrame({ topic: 'tyoid-abc', title: 'TYO ID code', message: '654321', sender: 'TYO ID', expires: String(exp), time: '1794000000' });
+    const body = JSON.parse(f.body.toString('utf8'));
+    assert.strictEqual(body.sender, 'TYO ID');
+    assert.strictEqual(body.expires, String(exp));
+    assert.strictEqual(f.expiration, String(exp), 'apns-expiration = the message deadline');
+    assert.strictEqual(f.pushType, 'alert'); assert.strictEqual(body.aps.alert.title, 'TYO ID code'); assert.strictEqual(body.topic, 'tyoid-abc');
+    // a deadline already in the past (ring replay edge) must not become a bogus header value
+    const stale = push.buildApnsFrame({ topic: 't', message: 'x', expires: String(exp - 600) });
+    assert.strictEqual(JSON.parse(stale.body.toString('utf8')).expires, String(exp - 600)); assert.strictEqual(stale.expiration, '0');
+    const plain = push.buildApnsFrame({ topic: 't', message: 'x' });
+    const pb = JSON.parse(plain.body.toString('utf8'));
+    assert.ok(!('sender' in pb) && !('expires' in pb)); assert.strictEqual(plain.expiration, '0');
+    assert.ok(f.body.length < 1024, 'well under the 4 KB APNs limit');
+});
+
 run();
